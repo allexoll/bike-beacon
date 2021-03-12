@@ -20,6 +20,7 @@ use stm32l0xx_hal::{
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
+    rprintln!("bike-lights-sw");
     let cp = pac::CorePeripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
 
@@ -35,7 +36,7 @@ fn main() -> ! {
     let acc_int_1 = gpioa.pa1.into_floating_input();
     let acc_int_2 = gpioa.pa2.into_floating_input();
 
-    let mut pm_5v_en = gpiob.pb1.into_push_pull_output();
+    //let mut pm_5v_en = gpiob.pb1.into_push_pull_output();
 
     let line_acc_int_1 = GpioLine::from_raw_line(acc_int_1.pin_number()).unwrap();
     let line_acc_int_2 = GpioLine::from_raw_line(acc_int_2.pin_number()).unwrap();
@@ -44,23 +45,37 @@ fn main() -> ! {
 
     let sda = gpiob.pb7.into_open_drain_output();
     let scl = gpiob.pb6.into_open_drain_output();
-    let i2c = dp.I2C1.i2c(sda, scl, 100.khz(), &mut rcc);
+    let mut i2c = dp.I2C1.i2c(sda, scl, 10.khz(), &mut rcc);
 
-    let mut lis3dh = Lis3dh::new(i2c, SlaveAddr::Alternate).unwrap();
+    // ls3dh doesnt ack on first transfer, but does after... dont know why
+    let mut buffer:[u8;1] = [0];
+    let _ =  i2c.read(SlaveAddr::Default.addr(), &mut buffer);
+
+    // dont forget to turn on ACC pwr before using it
+    let mut pm_acc_pwr_en = gpiob.pb0.into_push_pull_output();
+    pm_acc_pwr_en.set_high().unwrap();
+    let mut lis3dh = Lis3dh::new(i2c, SlaveAddr::Default).unwrap();
+
+    rprintln!("{:?}", lis3dh. get_device_id());
+    //lis3dh.write_register(0x30, 0b0100_0000).unwrap();
+    //lis3dh.set_interrupt(1);
+    
     exti.listen_gpio(
         &mut syscfg,
         acc_int_1.port(),
         line_acc_int_1,
         TriggerEdge::Rising,
     );
-    exti.listen_gpio(
+    /*exti.listen_gpio(
         &mut syscfg,
         acc_int_2.port(),
         line_acc_int_2,
         TriggerEdge::Rising,
-    );
-    let mut tracker = Tracker::new(3700.0);
+    );*/
+    //let mut tracker = Tracker::new(3700.0);
+    
     loop {
+        
         exti.wait_for_irq(
             line_acc_int_1,
             pwr.stop_mode(
@@ -71,12 +86,14 @@ fn main() -> ! {
                 },
             ),
         );
-        pm_5v_en.set_high().unwrap();
+        rprintln!("moving");
+        //pm_5v_en.set_high().unwrap();
         delay.delay_ms(100u32);
-        let accel = lis3dh.accel_raw().unwrap();
-        let orientation = tracker.update(accel);
-        rprintln!("{:?}", orientation);
-        pm_5v_en.set_low().unwrap();
+        //let accel = lis3dh.accel_raw().unwrap();
+        //let orientation = tracker.update(accel);
+        
+        //rprintln!("{:?}", orientation);
+        //pm_5v_en.set_low().unwrap();
     }
 }
 
