@@ -3,36 +3,51 @@
 
 // pick a panicking behavior
 use core::panic::PanicInfo;
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
+use core::ops::DerefMut;
+
 use cortex_m::asm;
 use cortex_m::interrupt::Mutex;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 
-use accelerometer::{RawAccelerometer, Tracker};
-use lis3dh::{Lis3dh, SlaveAddr};
+use lis3dh::{Lis3dh, SlaveAddr, Mode};
 use rtt_target::{rprintln, rtt_init_print};
 use stm32l0xx_hal::{
-    exti::{ConfigurableLine, Exti, ExtiLine, GpioLine, TriggerEdge},
+    exti::{ConfigurableLine, DirectLine, Exti, ExtiLine, GpioLine, TriggerEdge},
     pac::{self, interrupt, Interrupt},
     prelude::*,
     pwr::{self, PWR},
-    rcc::Config,
+    rcc::{Config, MSIRange},
     syscfg::SYSCFG,
     rtc::{self, Instant, RTC},
+    lptim::{self, ClockSrc, LpTimer},
+    timer::Timer,
 };
 use build_timestamp::build_time;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum TubeState {
+    SolidOff,
+    SolidOn,
+    Blinking5Hz,
+    Snake,
+    Unknown,
+}
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum StateMachine {
-    OFF,
-    OFF_forced,
-    ON,
+    Off,
+    ForcingOff,
+    ForcedOff,
+    On(TubeState),
 }
 
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 static WAKEUP_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+
+static TIMER: Mutex<RefCell<Option<Timer<pac::TIM2>>>> = Mutex::new(RefCell::new(None));
+static NEW_SAMPLE: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 #[entry]
 fn main() -> ! {
@@ -49,7 +64,7 @@ fn main() -> ! {
     let gpiob = dp.GPIOB.split(&mut rcc);
     let mut exti = Exti::new(dp.EXTI);
     let mut pwr = PWR::new(dp.PWR, &mut rcc);
-    let mut delay = cp.SYST.delay(rcc.clocks);
+    //let mut delay = cp.SYST.delay(rcc.clocks);
     let mut scb = cp.SCB;
 
     // set RTC to build time
@@ -67,6 +82,7 @@ fn main() -> ! {
         wakeup_timer: true,
         ..rtc::Interrupts::default()
     });
+    exti.listen_configurable(ConfigurableLine::RtcWakeup, TriggerEdge::Rising);
 
     let _apa_adc = gpioa.pa0.into_analog();
     let mut _tube_adc = gpioa.pa3.into_analog();
@@ -79,7 +95,7 @@ fn main() -> ! {
     let mut pm_5v_en = gpiob.pb1.into_push_pull_output();
 
     let line_acc_int_1 = GpioLine::from_raw_line(acc_int_1.pin_number()).unwrap();
-    let line_acc_int_2 = GpioLine::from_raw_line(acc_int_2.pin_number()).unwrap();
+    let _line_acc_int_2 = GpioLine::from_raw_line(acc_int_2.pin_number()).unwrap();
 
     let mut syscfg = SYSCFG::new(dp.SYSCFG, &mut rcc);
 
@@ -96,44 +112,60 @@ fn main() -> ! {
     pm_acc_pwr_en.set_high().unwrap();
     let mut lis3dh = Lis3dh::new(i2c, SlaveAddr::Default).unwrap();
     
-    let mut timer = dp.TIM2.timer(20.hz(), &mut rcc);
+    let mut timer = dp.TIM2.timer(10.hz(), &mut rcc);
     timer.listen();
-        cortex_m::interrupt::free(|cs| {
-        *ADC_PERIOD.borrow(cs).borrow_mut() = false;
-        *TIMER.borrow(cs).borrow_mut() = Some(timer);
-    });
+
     exti.listen_gpio(
         &mut syscfg,
         acc_int_1.port(),
         line_acc_int_1,
         TriggerEdge::Rising,
     );
-    /*exti.listen_gpio(
-        &mut syscfg,
-        acc_int_2.port(),
-        line_acc_int_2,
-        TriggerEdge::Rising,
-    );*/
+
     pm_5v_en.set_high().unwrap();
 
 
-    let mut state = StateMachine::OFF;
+    let mut state = StateMachine::On(TubeState::Unknown);
+    let mut tube_state = TubeState::Unknown;
+
+    cortex_m::interrupt::free(|cs| {
+        *TIMER.borrow(cs).borrow_mut() = Some(timer);
+    });
     unsafe {
         NVIC::unmask(Interrupt::EXTI0_1);
         NVIC::unmask(Interrupt::RTC);
         NVIC::unmask(Interrupt::TIM2);
     }
-    exti.listen_configurable(ConfigurableLine::RtcWakeup, TriggerEdge::Rising);
-
+    
+    lis3dh.set_mode(Mode::LowPower).unwrap();
     lis3dh.config_interrupt().unwrap();
 
-    loop {
-        //let val: u16 = adc.read(&mut _tube_adc).unwrap();
-        rprintln!("{:?}",state);
-        asm::wfi();
+    let mut adc_window: [u16;20] = [0;20];
+    let mut adc_window_index:usize = 0;
 
+    let mut old_state = StateMachine::Off;
+    loop {
+
+        if old_state != state {
+            rprintln!("{:?}",state);
+        }
+        old_state = state;
+
+        //pwr.enter_low_power_run_mode(rcc.clocks);
+        /*pwr.stop_mode(
+            &mut scb,
+            &mut rcc,
+            pwr::StopModeConfig {
+                ultra_low_power: true,
+            }
+        ).enter();*/
+        pwr.sleep_mode(&mut scb).enter();
+        //cortex_m::asm::wfi();
+        //pwr.exit_low_power_run_mode();
+ 
         let mut movement_has_happened = false;
         let mut timeout_has_happened = false;
+        let mut time_to_sample = false;
 
         cortex_m::interrupt::free(|cs|  {
                 movement_has_happened = LIS3DH_INT1_INT.borrow(cs).get();
@@ -145,6 +177,11 @@ fn main() -> ! {
                 if timeout_has_happened {
                     WAKEUP_INT.borrow(cs).set(false);
                 }
+                
+                time_to_sample = NEW_SAMPLE.borrow(cs).get();
+                if time_to_sample {
+                    NEW_SAMPLE.borrow(cs).set(false);
+                }
             }
         );
 
@@ -155,39 +192,68 @@ fn main() -> ! {
             rtc.wakeup_timer().start(20u32);
 
             state = match state {
-                StateMachine::OFF => StateMachine::OFF, // stay off
-                StateMachine::OFF_forced => StateMachine::ON, // turn on because only way to turn back on
-                StateMachine::ON => StateMachine::ON,   // dont care, stay on
+                StateMachine::Off => StateMachine::Off, // stay off
+                StateMachine::ForcingOff => StateMachine::On(TubeState::Unknown),
+                StateMachine::ForcedOff => {
+                    pm_5v_en.set_high().unwrap();
+                    StateMachine::On(TubeState::Unknown) // turn on because only way to turn back on
+                },
+                StateMachine::On(x) => StateMachine::On(x),   // dont care, stay on
             }
         }
         if timeout_has_happened {
             rprintln!("timeout");
             state = match state {
-                StateMachine::OFF => StateMachine::OFF, // stay off
-                StateMachine::OFF_forced => StateMachine::OFF_forced, // stay off forced
-                StateMachine::ON => StateMachine::OFF_forced, // going out of this
-            }
-        }
-        
-
-
-        //cortex_m::asm::wfi();
-        /*exti.wait_for_irq(
-            line_acc_int_1,
-            pwr.stop_mode(
-                &mut scb,
-                &mut rcc,
-                pwr::StopModeConfig {
-                    ultra_low_power: true,
+                StateMachine::Off => StateMachine::Off, // stay off
+                StateMachine::ForcedOff => StateMachine::ForcedOff, // stay off forced
+                StateMachine::ForcingOff => StateMachine::ForcingOff,
+                StateMachine::On(_) => {
+                    pm_5v_en.set_low().unwrap();
+                    StateMachine::ForcingOff // going out of this
                 },
-            ),
-        );*/
-        //pm_5v_en.toggle().unwrap();
-        //rprintln!("moving");
-        //pm_5v_en.set_high().unwrap();
-        //let instant = rtc.now();
-        //rprintln!("{:?}", instant);
-        //delay.delay_ms(1000u32);
+            };
+        }
+
+        if time_to_sample {
+            let val: u16 = adc.read(&mut _tube_adc).unwrap();
+            adc_window[adc_window_index] = val;
+            adc_window_index +=1;
+            adc_window_index %= adc_window.len();
+            let mut sum:u32 = 0;
+            for i in 0..adc_window.len() {
+                sum += adc_window[i] as u32;
+            }
+            sum /= adc_window.len() as u32;
+            let old_tube_state = tube_state;
+
+            let tube_state = match sum {
+                0..=125 => TubeState::SolidOff,
+                126..=160 => TubeState::Snake,
+                161..=200 => TubeState::Blinking5Hz,
+                201..=4096 => TubeState::SolidOn,
+                _ => unreachable!(),
+            };
+            // if state changed
+            if tube_state != old_tube_state {
+                // if we are in the process of forcabely turning off the device
+                if state == StateMachine::ForcingOff || state == StateMachine::ForcedOff{
+                    // we wait for it to be completely off
+                    if tube_state == TubeState::SolidOff{
+                        state = StateMachine::ForcedOff;
+                    }
+                }
+                else
+                {
+                    state = match tube_state {
+                        TubeState::SolidOff => StateMachine::Off,
+                        x => StateMachine::On(x),
+                    }
+                }
+            }
+
+
+            //rprintln!("{:?}", tube_state);
+        }
     }
 }
 
@@ -211,8 +277,10 @@ fn EXTI0_1()
 #[interrupt]
 fn RTC()
 {
-    Exti::unpend(ConfigurableLine::RtcWakeup);
-    rprintln!("rtc");
+    cortex_m::interrupt::free(|cs| {
+        Exti::unpend(ConfigurableLine::RtcWakeup);
+        WAKEUP_INT.borrow(cs).set(true)
+    });
 }
 
 #[interrupt]
@@ -223,16 +291,7 @@ fn TIM2() {
             // Clear the interrupt flag.
             timer.clear_irq();
 
-            // Change the LED state on each interrupt.
-            if let Some(ref mut led) = LED.borrow(cs).borrow_mut().deref_mut() {
-                if *STATE {
-                    led.set_low().unwrap();
-                    *STATE = false;
-                } else {
-                    led.set_high().unwrap();
-                    *STATE = true;
-                }
-            }
+            NEW_SAMPLE.borrow(cs).set(true);
         }
     });
 }
