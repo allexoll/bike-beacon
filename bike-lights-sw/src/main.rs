@@ -24,6 +24,7 @@ use stm32l0xx_hal::{
     lptim::{self, ClockSrc, LpTimer},
     timer::Timer,
 };
+use shared_bus;
 use build_timestamp::build_time;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -102,16 +103,20 @@ fn main() -> ! {
     let sda = gpiob.pb7.into_open_drain_output();
     let scl = gpiob.pb6.into_open_drain_output();
     let mut i2c = dp.I2C1.i2c(sda, scl, 100.khz(), &mut rcc);
+    let i2cbus = shared_bus::BusManagerSimple::new(i2c);
+    let mut i2c_acc = i2cbus.acquire_i2c();
+    
 
     // ls3dh doesnt ack on first transfer, but does after... dont know why
     let mut buffer:[u8;1] = [0];
-    let _ =  i2c.read(SlaveAddr::Default.addr(), &mut buffer);
+    let _ =  i2c_acc.read(SlaveAddr::Default.addr(), &mut buffer);
 
     // dont forget to turn on ACC pwr before using it (useless in rev0)
     let mut pm_acc_pwr_en = gpiob.pb0.into_push_pull_output();
     pm_acc_pwr_en.set_high().unwrap();
-    let mut lis3dh = Lis3dh::new(i2c, SlaveAddr::Default).unwrap();
+    let mut lis3dh = Lis3dh::new(i2c_acc, SlaveAddr::Default).unwrap();
     
+    let mut i2c_leds = i2cbus.acquire_i2c();
     let mut timer = dp.TIM2.timer(10.hz(), &mut rcc);
     timer.listen();
 
@@ -159,7 +164,7 @@ fn main() -> ! {
                 ultra_low_power: true,
             }
         ).enter();*/
-        pwr.sleep_mode(&mut scb).enter();
+        //pwr.sleep_mode(&mut scb).enter();
         //cortex_m::asm::wfi();
         //pwr.exit_low_power_run_mode();
  
@@ -213,7 +218,7 @@ fn main() -> ! {
                 },
             };
         }
-
+        //i2c_leds.write(0x70, &[80]).unwrap();
         if time_to_sample {
             let val: u16 = adc.read(&mut _tube_adc).unwrap();
             adc_window[adc_window_index] = val;

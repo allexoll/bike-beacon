@@ -16,7 +16,7 @@ lis3dh = {path = "../lis3dh-rs"}
 accelerometer = "~0.12"
 rtt-target = { version = "0.3.0", features = ["cortex-m"] }
 build_timestamp = "0.1.0"
-
+shared-bus = "0.2.0"
 
 # this lets you use `cargo fix`!
 [[bin]]
