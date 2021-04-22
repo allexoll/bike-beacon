@@ -33,22 +33,15 @@ enum TubeState {
     SolidOn,
     Blinking5Hz,
     Snake,
-    Unknown,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum StateMachine {
-    Off,
-    ForcingOff,
-    ForcedOff,
-    On(TubeState),
-}
+
 
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 static WAKEUP_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 static TIMER: Mutex<RefCell<Option<Timer<pac::TIM2>>>> = Mutex::new(RefCell::new(None));
-static NEW_SAMPLE: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+static PERIODIC: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 #[entry]
 fn main() -> ! {
@@ -85,15 +78,10 @@ fn main() -> ! {
     });
     exti.listen_configurable(ConfigurableLine::RtcWakeup, TriggerEdge::Rising);
 
-    let _apa_adc = gpioa.pa0.into_analog();
-    let mut _tube_adc = gpioa.pa3.into_analog();
-
-    let mut tube_5v_en = gpioa.pa15.into_push_pull_output();
-    tube_5v_en.set_high().unwrap();
-    let acc_int_1 = gpioa.pa1.into_floating_input();
-    let acc_int_2 = gpioa.pa2.into_floating_input();
 
     let mut pm_5v_en = gpiob.pb1.into_push_pull_output();
+    let acc_int_1 = gpioa.pa1.into_floating_input();
+    let acc_int_2 = gpioa.pa2.into_floating_input();
 
     let line_acc_int_1 = GpioLine::from_raw_line(acc_int_1.pin_number()).unwrap();
     let _line_acc_int_2 = GpioLine::from_raw_line(acc_int_2.pin_number()).unwrap();
@@ -103,20 +91,28 @@ fn main() -> ! {
     let sda = gpiob.pb7.into_open_drain_output();
     let scl = gpiob.pb6.into_open_drain_output();
     let mut i2c = dp.I2C1.i2c(sda, scl, 100.khz(), &mut rcc);
-    let i2cbus = shared_bus::BusManagerSimple::new(i2c);
-    let mut i2c_acc = i2cbus.acquire_i2c();
+
     
 
-    // ls3dh doesnt ack on first transfer, but does after... dont know why
-    let mut buffer:[u8;1] = [0];
-    let _ =  i2c_acc.read(SlaveAddr::Default.addr(), &mut buffer);
+    let tube_btn = gpioa.pa3.into_floating_input();
+
+    let mut leds = [
+        gpioa.pa4.into_push_pull_output().downgrade(),
+        gpioa.pa5.into_push_pull_output().downgrade(),
+        gpioa.pa6.into_push_pull_output().downgrade(),
+        gpioa.pa7.into_push_pull_output().downgrade(),
+        gpioa.pa8.into_push_pull_output().downgrade(),
+    ];
 
     // dont forget to turn on ACC pwr before using it (useless in rev0)
     let mut pm_acc_pwr_en = gpiob.pb0.into_push_pull_output();
     pm_acc_pwr_en.set_high().unwrap();
-    let mut lis3dh = Lis3dh::new(i2c_acc, SlaveAddr::Default).unwrap();
+
+    // ls3dh doesnt ack on first transfer, but does after... dont know why
+    let mut buffer:[u8;1] = [0];
+    let _ =  i2c.read(SlaveAddr::Alternate.addr(), &mut buffer);
+    let mut lis3dh = Lis3dh::new(i2c, SlaveAddr::Alternate).unwrap();
     
-    let mut i2c_leds = i2cbus.acquire_i2c();
     let mut timer = dp.TIM2.timer(10.hz(), &mut rcc);
     timer.listen();
 
@@ -127,11 +123,8 @@ fn main() -> ! {
         TriggerEdge::Rising,
     );
 
-    pm_5v_en.set_high().unwrap();
 
-
-    let mut state = StateMachine::On(TubeState::Unknown);
-    let mut tube_state = TubeState::Unknown;
+    let mut tube_state = TubeState::SolidOff;
 
     cortex_m::interrupt::free(|cs| {
         *TIMER.borrow(cs).borrow_mut() = Some(timer);
@@ -145,16 +138,32 @@ fn main() -> ! {
     lis3dh.set_mode(Mode::LowPower).unwrap();
     lis3dh.config_interrupt().unwrap();
 
-    let mut adc_window: [u16;20] = [0;20];
-    let mut adc_window_index:usize = 0;
 
-    let mut old_state = StateMachine::Off;
+    let mut previous_button = tube_btn.is_low().unwrap();
+
+    let mut snake_counter = 0;
     loop {
 
-        if old_state != state {
-            rprintln!("{:?}",state);
+        let mut current_button = tube_btn.is_low().unwrap();
+        if(current_button & !previous_button)
+        {
+            tube_state = match tube_state {
+                TubeState::SolidOff => {
+                    pm_5v_en.set_high().unwrap();
+                    TubeState::SolidOn
+                },  // turn On
+                TubeState::SolidOn => TubeState::Blinking5Hz, 
+                TubeState::Blinking5Hz => TubeState::Snake,
+                TubeState::Snake=> {
+                    pm_5v_en.set_low().unwrap(); 
+                    TubeState::SolidOff 
+                }
+            };
+            rprintln!("pressed: => {:?}", tube_state);
         }
-        old_state = state;
+        previous_button = current_button;
+
+        //rprintln!("{:?}",tube_state);
 
         //pwr.enter_low_power_run_mode(rcc.clocks);
         /*pwr.stop_mode(
@@ -170,8 +179,7 @@ fn main() -> ! {
  
         let mut movement_has_happened = false;
         let mut timeout_has_happened = false;
-        let mut time_to_sample = false;
-
+        let mut periodic_has_happened = false;
         cortex_m::interrupt::free(|cs|  {
                 movement_has_happened = LIS3DH_INT1_INT.borrow(cs).get();
                 if movement_has_happened {
@@ -182,10 +190,10 @@ fn main() -> ! {
                 if timeout_has_happened {
                     WAKEUP_INT.borrow(cs).set(false);
                 }
-                
-                time_to_sample = NEW_SAMPLE.borrow(cs).get();
-                if time_to_sample {
-                    NEW_SAMPLE.borrow(cs).set(false);
+
+                periodic_has_happened = PERIODIC.borrow(cs).get();
+                if periodic_has_happened {
+                    PERIODIC.borrow(cs).set(false);
                 }
             }
         );
@@ -195,69 +203,40 @@ fn main() -> ! {
             rprintln!("moved");
             lis3dh.get_int_source().unwrap();
             rtc.wakeup_timer().start(20u32);
-
-            state = match state {
-                StateMachine::Off => StateMachine::Off, // stay off
-                StateMachine::ForcingOff => StateMachine::On(TubeState::Unknown),
-                StateMachine::ForcedOff => {
-                    pm_5v_en.set_high().unwrap();
-                    StateMachine::On(TubeState::Unknown) // turn on because only way to turn back on
-                },
-                StateMachine::On(x) => StateMachine::On(x),   // dont care, stay on
-            }
         }
         if timeout_has_happened {
             rprintln!("timeout");
-            state = match state {
-                StateMachine::Off => StateMachine::Off, // stay off
-                StateMachine::ForcedOff => StateMachine::ForcedOff, // stay off forced
-                StateMachine::ForcingOff => StateMachine::ForcingOff,
-                StateMachine::On(_) => {
-                    pm_5v_en.set_low().unwrap();
-                    StateMachine::ForcingOff // going out of this
-                },
-            };
+            tube_state = TubeState::SolidOff;
         }
-        //i2c_leds.write(0x70, &[80]).unwrap();
-        if time_to_sample {
-            let val: u16 = adc.read(&mut _tube_adc).unwrap();
-            adc_window[adc_window_index] = val;
-            adc_window_index +=1;
-            adc_window_index %= adc_window.len();
-            let mut sum:u32 = 0;
-            for i in 0..adc_window.len() {
-                sum += adc_window[i] as u32;
-            }
-            sum /= adc_window.len() as u32;
-            let old_tube_state = tube_state;
-
-            let tube_state = match sum {
-                0..=125 => TubeState::SolidOff,
-                126..=160 => TubeState::Snake,
-                161..=200 => TubeState::Blinking5Hz,
-                201..=4096 => TubeState::SolidOn,
-                _ => unreachable!(),
-            };
-            // if state changed
-            if tube_state != old_tube_state {
-                // if we are in the process of forcabely turning off the device
-                if state == StateMachine::ForcingOff || state == StateMachine::ForcedOff{
-                    // we wait for it to be completely off
-                    if tube_state == TubeState::SolidOff{
-                        state = StateMachine::ForcedOff;
+        if periodic_has_happened {
+            match tube_state {
+                TubeState::SolidOff => {
+                    for i in leds.iter_mut() {
+                        i.set_low().unwrap();
+                    }
+                },
+                TubeState::SolidOn => {
+                    for i in leds.iter_mut() {
+                        i.set_high().unwrap();
+                    }
+                },
+                TubeState::Blinking5Hz => {
+                    for i in leds.iter_mut() {
+                        i.toggle().unwrap();
                     }
                 }
-                else
-                {
-                    state = match tube_state {
-                        TubeState::SolidOff => StateMachine::Off,
-                        x => StateMachine::On(x),
+                TubeState::Snake => {
+                    snake_counter +=1;
+                    for i in 0..=4 {
+                        if snake_counter%5 == i {
+                            leds[i].set_high().unwrap();
+                        }
+                        else{
+                            leds[i].set_low().unwrap();
+                        }
                     }
                 }
             }
-
-
-            //rprintln!("{:?}", tube_state);
         }
     }
 }
@@ -296,7 +275,7 @@ fn TIM2() {
             // Clear the interrupt flag.
             timer.clear_irq();
 
-            NEW_SAMPLE.borrow(cs).set(true);
+            PERIODIC.borrow(cs).set(true);
         }
     });
 }
