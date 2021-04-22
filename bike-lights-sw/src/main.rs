@@ -24,7 +24,7 @@ use stm32l0xx_hal::{
     lptim::{self, ClockSrc, LpTimer},
     timer::Timer,
 };
-use shared_bus;
+
 use build_timestamp::build_time;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -38,6 +38,8 @@ enum TubeState {
 
 
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+static BTN_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+
 static WAKEUP_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 static TIMER: Mutex<RefCell<Option<Timer<pac::TIM2>>>> = Mutex::new(RefCell::new(None));
@@ -52,7 +54,7 @@ fn main() -> ! {
     let dp = pac::Peripherals::take().unwrap();
 
     let mut rcc = dp.RCC.freeze(Config::hsi16());
-    let mut adc = dp.ADC.constrain(&mut rcc);
+
 
     let gpioa = dp.GPIOA.split(&mut rcc);
     let gpiob = dp.GPIOB.split(&mut rcc);
@@ -95,6 +97,7 @@ fn main() -> ! {
     
 
     let tube_btn = gpioa.pa3.into_floating_input();
+    let line_tube_btn = GpioLine::from_raw_line(tube_btn.pin_number()).unwrap();
 
     let mut leds = [
         gpioa.pa4.into_push_pull_output().downgrade(),
@@ -103,6 +106,7 @@ fn main() -> ! {
         gpioa.pa7.into_push_pull_output().downgrade(),
         gpioa.pa8.into_push_pull_output().downgrade(),
     ];
+    let mut front_pwr_en = gpiob.pb4.into_push_pull_output();
 
     // dont forget to turn on ACC pwr before using it (useless in rev0)
     let mut pm_acc_pwr_en = gpiob.pb0.into_push_pull_output();
@@ -123,6 +127,13 @@ fn main() -> ! {
         TriggerEdge::Rising,
     );
 
+    exti.listen_gpio(
+        &mut syscfg,
+        tube_btn.port(),
+        line_tube_btn,
+        TriggerEdge::Falling,
+    );
+
 
     let mut tube_state = TubeState::SolidOff;
 
@@ -131,6 +142,7 @@ fn main() -> ! {
     });
     unsafe {
         NVIC::unmask(Interrupt::EXTI0_1);
+        NVIC::unmask(Interrupt::EXTI2_3);
         NVIC::unmask(Interrupt::RTC);
         NVIC::unmask(Interrupt::TIM2);
     }
@@ -139,29 +151,8 @@ fn main() -> ! {
     lis3dh.config_interrupt().unwrap();
 
 
-    let mut previous_button = tube_btn.is_low().unwrap();
-
     let mut snake_counter = 0;
     loop {
-
-        let mut current_button = tube_btn.is_low().unwrap();
-        if(current_button & !previous_button)
-        {
-            tube_state = match tube_state {
-                TubeState::SolidOff => {
-                    pm_5v_en.set_high().unwrap();
-                    TubeState::SolidOn
-                },  // turn On
-                TubeState::SolidOn => TubeState::Blinking5Hz, 
-                TubeState::Blinking5Hz => TubeState::Snake,
-                TubeState::Snake=> {
-                    pm_5v_en.set_low().unwrap(); 
-                    TubeState::SolidOff 
-                }
-            };
-            rprintln!("pressed: => {:?}", tube_state);
-        }
-        previous_button = current_button;
 
         //rprintln!("{:?}",tube_state);
 
@@ -177,9 +168,11 @@ fn main() -> ! {
         //cortex_m::asm::wfi();
         //pwr.exit_low_power_run_mode();
  
+
         let mut movement_has_happened = false;
         let mut timeout_has_happened = false;
         let mut periodic_has_happened = false;
+        let mut button_has_happened = false;
         cortex_m::interrupt::free(|cs|  {
                 movement_has_happened = LIS3DH_INT1_INT.borrow(cs).get();
                 if movement_has_happened {
@@ -195,8 +188,29 @@ fn main() -> ! {
                 if periodic_has_happened {
                     PERIODIC.borrow(cs).set(false);
                 }
+                button_has_happened = BTN_INT.borrow(cs).get();
+                if button_has_happened {
+                    BTN_INT.borrow(cs).set(false);
+                }
             }
         );
+
+        if button_has_happened
+        {
+            tube_state = match tube_state {
+                TubeState::SolidOff => {
+                    pm_5v_en.set_high().unwrap();
+                    TubeState::SolidOn
+                },  // turn On
+                TubeState::SolidOn => TubeState::Blinking5Hz, 
+                TubeState::Blinking5Hz => TubeState::Snake,
+                TubeState::Snake=> {
+                    pm_5v_en.set_low().unwrap(); 
+                    TubeState::SolidOff 
+                }
+            };
+            rprintln!("pressed: => {:?}", tube_state);
+        }
 
         if movement_has_happened
         {
@@ -211,22 +225,26 @@ fn main() -> ! {
         if periodic_has_happened {
             match tube_state {
                 TubeState::SolidOff => {
+                    front_pwr_en.set_low().unwrap();
                     for i in leds.iter_mut() {
                         i.set_low().unwrap();
                     }
                 },
                 TubeState::SolidOn => {
+                    front_pwr_en.set_high().unwrap();
                     for i in leds.iter_mut() {
                         i.set_high().unwrap();
                     }
                 },
                 TubeState::Blinking5Hz => {
+                    front_pwr_en.toggle().unwrap();
                     for i in leds.iter_mut() {
                         i.toggle().unwrap();
                     }
                 }
                 TubeState::Snake => {
                     snake_counter +=1;
+                    front_pwr_en.toggle().unwrap();
                     for i in 0..=4 {
                         if snake_counter%5 == i {
                             leds[i].set_high().unwrap();
@@ -255,6 +273,15 @@ fn EXTI0_1()
         Exti::unpend(GpioLine::from_raw_line(1).unwrap());
         // ask mainloop to clear lis3dh interrupt source
         LIS3DH_INT1_INT.borrow(cs).set(true)
+    });
+}
+
+#[interrupt]
+fn EXTI2_3()
+{
+    cortex_m::interrupt::free(|cs| {
+        Exti::unpend(GpioLine::from_raw_line(3).unwrap());
+        BTN_INT.borrow(cs).set(true)
     });
 }
 
