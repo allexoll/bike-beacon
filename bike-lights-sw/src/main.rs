@@ -152,6 +152,7 @@ fn main() -> ! {
 
 
     let mut snake_counter = 0;
+    let mut blinker_counter = 0;
     loop {
 
         //rprintln!("{:?}",tube_state);
@@ -202,8 +203,14 @@ fn main() -> ! {
                     pm_5v_en.set_high().unwrap();
                     TubeState::SolidOn
                 },  // turn On
-                TubeState::SolidOn => TubeState::Blinking5Hz, 
-                TubeState::Blinking5Hz => TubeState::Snake,
+                TubeState::SolidOn => {
+                    blinker_counter = 0;
+                    TubeState::Blinking5Hz
+                }, 
+                TubeState::Blinking5Hz => {
+                    snake_counter = 0;
+                    TubeState::Snake
+                },
                 TubeState::Snake=> {
                     pm_5v_en.set_low().unwrap(); 
                     TubeState::SolidOff 
@@ -237,9 +244,18 @@ fn main() -> ! {
                     }
                 },
                 TubeState::Blinking5Hz => {
-                    front_pwr_en.toggle().unwrap();
-                    for i in leds.iter_mut() {
-                        i.toggle().unwrap();
+                    blinker_counter += 1;
+                    if blinker_counter %10 == 0 {
+                        front_pwr_en.set_high().unwrap();
+                        for i in leds.iter_mut() {
+                            i.set_high().unwrap();
+                        }
+                    }
+                    else {
+                        front_pwr_en.set_low().unwrap();
+                        for i in leds.iter_mut() {
+                            i.set_low().unwrap();
+                        }
                     }
                 }
                 TubeState::Snake => {
