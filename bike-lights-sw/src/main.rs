@@ -14,36 +14,52 @@ use cortex_m_rt::entry;
 use lis3dh::{Lis3dh, SlaveAddr, Mode};
 use rtt_target::{rprintln, rtt_init_print};
 use stm32l0xx_hal::{
-    exti::{ConfigurableLine, DirectLine, Exti, ExtiLine, GpioLine, TriggerEdge},
+    exti::{ConfigurableLine, Exti, ExtiLine, GpioLine, TriggerEdge},
     pac::{self, interrupt, Interrupt},
     prelude::*,
     pwr::{self, PWR},
-    rcc::{Config, MSIRange},
+    rcc::{Config},
     syscfg::SYSCFG,
     rtc::{self, Instant, RTC},
-    lptim::{self, ClockSrc, LpTimer},
+    //lptim::{self, ClockSrc, LpTimer},
     timer::Timer,
+    gpio::*,
 };
 
 use build_timestamp::build_time;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TubeState {
-    SolidOff,
     SolidOn,
     Blinking5Hz,
     Snake,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum TubeOnOff {
+    On,
+    Off,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ButtonState {
+    Released,
+    ClickedShort,
+    ClickedLong,
+}
+
 
 
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
-static BTN_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+
+static BTN_STATE: Mutex<Cell<ButtonState>> = Mutex::new(Cell::new(ButtonState::Released));
+static BTN_GPIO: Mutex<RefCell<Option<gpioa::PA3<Input<Floating>>>>> = Mutex::new(RefCell::new(None));
 
 static WAKEUP_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 static TIMER: Mutex<RefCell<Option<Timer<pac::TIM2>>>> = Mutex::new(RefCell::new(None));
 static PERIODIC: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+static TICKS: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
 
 #[entry]
 fn main() -> ! {
@@ -131,14 +147,15 @@ fn main() -> ! {
         &mut syscfg,
         tube_btn.port(),
         line_tube_btn,
-        TriggerEdge::Falling,
+        TriggerEdge::Both,
     );
 
 
-    let mut tube_state = TubeState::SolidOff;
-
+    let mut tube_state = TubeState::SolidOn;
+    let mut tube_on_off = TubeOnOff::Off;
     cortex_m::interrupt::free(|cs| {
         *TIMER.borrow(cs).borrow_mut() = Some(timer);
+        *BTN_GPIO.borrow(cs).borrow_mut() = Some(tube_btn);
     });
     unsafe {
         NVIC::unmask(Interrupt::EXTI0_1);
@@ -154,8 +171,6 @@ fn main() -> ! {
     let mut snake_counter = 0;
     let mut blinker_counter = 0;
     loop {
-
-        //rprintln!("{:?}",tube_state);
 
         //pwr.enter_low_power_run_mode(rcc.clocks);
         /*pwr.stop_mode(
@@ -173,7 +188,7 @@ fn main() -> ! {
         let mut movement_has_happened = false;
         let mut timeout_has_happened = false;
         let mut periodic_has_happened = false;
-        let mut button_has_happened = false;
+        let mut button_has_happened = ButtonState::Released;
         cortex_m::interrupt::free(|cs|  {
                 movement_has_happened = LIS3DH_INT1_INT.borrow(cs).get();
                 if movement_has_happened {
@@ -189,34 +204,42 @@ fn main() -> ! {
                 if periodic_has_happened {
                     PERIODIC.borrow(cs).set(false);
                 }
-                button_has_happened = BTN_INT.borrow(cs).get();
-                if button_has_happened {
-                    BTN_INT.borrow(cs).set(false);
-                }
+                button_has_happened = BTN_STATE.borrow(cs).get();
+                BTN_STATE.borrow(cs).set(ButtonState::Released);
             }
         );
 
-        if button_has_happened
+        if button_has_happened != ButtonState::Released
         {
-            tube_state = match tube_state {
-                TubeState::SolidOff => {
-                    pm_5v_en.set_high().unwrap();
-                    TubeState::SolidOn
-                },  // turn On
-                TubeState::SolidOn => {
+            rprintln!("btn: {:?}", button_has_happened);
+            if button_has_happened == ButtonState::ClickedShort {
+                if tube_on_off == TubeOnOff::Off {
+                    tube_on_off = TubeOnOff::On;
+                    pm_5v_en.set_high().unwrap();                        
                     blinker_counter = 0;
-                    TubeState::Blinking5Hz
-                }, 
-                TubeState::Blinking5Hz => {
-                    snake_counter = 0;
-                    TubeState::Snake
-                },
-                TubeState::Snake=> {
-                    pm_5v_en.set_low().unwrap(); 
-                    TubeState::SolidOff 
+                    snake_counter = 0;  
                 }
-            };
-            rprintln!("pressed: => {:?}", tube_state);
+                else{
+                    tube_state = match tube_state {
+                        TubeState::SolidOn => {
+                            blinker_counter = 0;
+                            TubeState::Blinking5Hz
+                        }, 
+                        TubeState::Blinking5Hz => {
+                            snake_counter = 0;
+                            TubeState::Snake
+                        },
+                        TubeState::Snake=> {
+                            TubeState::SolidOn 
+                        }
+                    };
+                }
+            }
+            if button_has_happened == ButtonState::ClickedLong {
+                tube_on_off = TubeOnOff::Off;
+                pm_5v_en.set_low().unwrap(); 
+            }
+            rprintln!("pressed: => {:?}:{:?}",tube_on_off, tube_state);
         }
 
         if movement_has_happened
@@ -227,46 +250,45 @@ fn main() -> ! {
         }
         if timeout_has_happened {
             rprintln!("timeout");
-            tube_state = TubeState::SolidOff;
+            tube_on_off = TubeOnOff::Off;
+            pm_5v_en.set_low().unwrap(); 
+
         }
         if periodic_has_happened {
-            match tube_state {
-                TubeState::SolidOff => {
-                    front_pwr_en.set_low().unwrap();
-                    for i in leds.iter_mut() {
-                        i.set_low().unwrap();
-                    }
-                },
-                TubeState::SolidOn => {
-                    front_pwr_en.set_high().unwrap();
-                    for i in leds.iter_mut() {
-                        i.set_high().unwrap();
-                    }
-                },
-                TubeState::Blinking5Hz => {
-                    blinker_counter += 1;
-                    if blinker_counter %10 == 0 {
+            if tube_on_off == TubeOnOff::On
+            {
+                match tube_state {
+                    TubeState::SolidOn => {
                         front_pwr_en.set_high().unwrap();
                         for i in leds.iter_mut() {
                             i.set_high().unwrap();
                         }
-                    }
-                    else {
-                        front_pwr_en.set_low().unwrap();
-                        for i in leds.iter_mut() {
-                            i.set_low().unwrap();
+                    },
+                    TubeState::Blinking5Hz => {
+                        blinker_counter += 1;
+                        if blinker_counter %10 == 0 {
+                            front_pwr_en.set_high().unwrap();
+                            for i in leds.iter_mut() {
+                                i.set_high().unwrap();
+                            }
+                        }
+                        else {
+                            front_pwr_en.set_low().unwrap();
+                            for i in leds.iter_mut() {
+                                i.set_low().unwrap();
+                            }
                         }
                     }
-                }
-                TubeState::Snake => {
-                    snake_counter +=1;
-                    front_pwr_en.toggle().unwrap();
-                    for i in 0..=4 {
-                        if snake_counter%5 == i {
-                            leds[i].set_high().unwrap();
-                        }
-                        else{
-                            leds[i].set_low().unwrap();
+                    TubeState::Snake => {
+                        snake_counter +=1;
+                        front_pwr_en.toggle().unwrap();
+                        for i in 0..=4 {
+                            if snake_counter%5 == i {
+                                leds[i].set_high().unwrap();
+                            }
+                            else{
+                                leds[i].set_low().unwrap();
+                            }
                         }
                     }
                 }
@@ -296,8 +318,19 @@ fn EXTI0_1()
 fn EXTI2_3()
 {
     cortex_m::interrupt::free(|cs| {
-        Exti::unpend(GpioLine::from_raw_line(3).unwrap());
-        BTN_INT.borrow(cs).set(true)
+        if let Some(ref mut btn) = BTN_GPIO.borrow(cs).borrow_mut().deref_mut() {
+            if btn.is_high().unwrap(){ // release button
+                BTN_STATE.borrow(cs).set( match TICKS.borrow(cs).get() {
+                    0..=9 => ButtonState::ClickedShort,
+                    _ => ButtonState::ClickedLong,
+                });
+            }
+            else{
+                TICKS.borrow(cs).set(0);
+            }
+        }
+            Exti::unpend(GpioLine::from_raw_line(3).unwrap());
+
     });
 }
 
@@ -317,7 +350,7 @@ fn TIM2() {
         if let Some(ref mut timer) = TIMER.borrow(cs).borrow_mut().deref_mut() {
             // Clear the interrupt flag.
             timer.clear_irq();
-
+            TICKS.borrow(cs).set(TICKS.borrow(cs).get()+1);
             PERIODIC.borrow(cs).set(true);
         }
     });
