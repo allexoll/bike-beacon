@@ -6,18 +6,18 @@ use core::panic::PanicInfo;
 use core::cell::{Cell, RefCell};
 use core::ops::DerefMut;
 
-use cortex_m::asm;
+
 use cortex_m::interrupt::Mutex;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 
 use lis3dh::{Lis3dh, SlaveAddr, Mode};
-use rtt_target::{rprintln, rtt_init_print};
+//use rtt_target::{rprintln, rtt_init_print};
 use stm32l0xx_hal::{
     exti::{ConfigurableLine, Exti, ExtiLine, GpioLine, TriggerEdge},
     pac::{self, interrupt, Interrupt},
     prelude::*,
-    pwr::{self, PWR},
+    pwr::{PWR},
     rcc::{Config},
     syscfg::SYSCFG,
     rtc::{self, Instant, RTC},
@@ -28,6 +28,7 @@ use stm32l0xx_hal::{
 
 use build_timestamp::build_time;
 
+// light pattern
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum TubeState {
     SolidOn,
@@ -41,6 +42,7 @@ enum TubeOnOff {
     Off,
 }
 
+// button manager
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ButtonState {
     Released,
@@ -49,7 +51,7 @@ enum ButtonState {
 }
 
 
-
+// shared values beetween main context and interrupts
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 static BTN_STATE: Mutex<Cell<ButtonState>> = Mutex::new(Cell::new(ButtonState::Released));
@@ -63,8 +65,8 @@ static TICKS: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
 
 #[entry]
 fn main() -> ! {
-    rtt_init_print!();
-    rprintln!("bike-lights-sw");
+    //rtt_init_print!();
+    //rprintln!("bike-lights-sw");
 
     let cp = pac::CorePeripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
@@ -133,8 +135,9 @@ fn main() -> ! {
     let _ =  i2c.read(SlaveAddr::Alternate.addr(), &mut buffer);
     let mut lis3dh = Lis3dh::new(i2c, SlaveAddr::Alternate).unwrap();
     
-    let mut timer = dp.TIM2.timer(10.hz(), &mut rcc);
+    let mut timer = dp.TIM2.timer(20.hz(), &mut rcc);
     timer.listen();
+
 
     exti.listen_gpio(
         &mut syscfg,
@@ -165,6 +168,7 @@ fn main() -> ! {
     }
     
     lis3dh.set_mode(Mode::LowPower).unwrap();
+    // custom function to enable moving irq if acc > 1g any direction
     lis3dh.config_interrupt().unwrap();
 
 
@@ -180,7 +184,7 @@ fn main() -> ! {
                 ultra_low_power: true,
             }
         ).enter();*/
-        //pwr.sleep_mode(&mut scb).enter();
+        pwr.sleep_mode(&mut scb).enter();
         //cortex_m::asm::wfi();
         //pwr.exit_low_power_run_mode();
  
@@ -211,7 +215,7 @@ fn main() -> ! {
 
         if button_has_happened != ButtonState::Released
         {
-            rprintln!("btn: {:?}", button_has_happened);
+            //rprintln!("btn: {:?}", button_has_happened);
             if button_has_happened == ButtonState::ClickedShort {
                 if tube_on_off == TubeOnOff::Off {
                     tube_on_off = TubeOnOff::On;
@@ -238,20 +242,27 @@ fn main() -> ! {
             if button_has_happened == ButtonState::ClickedLong {
                 tube_on_off = TubeOnOff::Off;
                 pm_5v_en.set_low().unwrap(); 
+                for i in leds.iter_mut() {
+                    i.set_low().unwrap();
+                }
             }
-            rprintln!("pressed: => {:?}:{:?}",tube_on_off, tube_state);
+            //rprintln!("pressed: => {:?}:{:?}",tube_on_off, tube_state);
         }
 
         if movement_has_happened
         {
-            rprintln!("moved");
+            //rprintln!("moved");
             lis3dh.get_int_source().unwrap();
-            rtc.wakeup_timer().start(20u32);
+            rtc.wakeup_timer().cancel();
+            rtc.wakeup_timer().start(240u32);
         }
         if timeout_has_happened {
-            rprintln!("timeout");
+            //rprintln!("timeout");
             tube_on_off = TubeOnOff::Off;
             pm_5v_en.set_low().unwrap(); 
+            for i in leds.iter_mut() {
+                i.set_low().unwrap();
+            }
 
         }
         if periodic_has_happened {
@@ -283,7 +294,7 @@ fn main() -> ! {
                         snake_counter +=1;
                         front_pwr_en.toggle().unwrap();
                         for i in 0..=4 {
-                            if snake_counter%5 == i {
+                            if (snake_counter/2)%5 == i {
                                 leds[i].set_high().unwrap();
                             }
                             else{
@@ -300,7 +311,7 @@ fn main() -> ! {
 #[inline(never)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    rprintln!("{}", info);
+    //rprintln!("{}", info);
     loop {} // You might need a compiler fence in here.
 }
 
