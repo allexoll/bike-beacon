@@ -11,7 +11,7 @@ cortex-m-rt = "0.6.12"
 embedded-hal = "0.2.4"
 #cortex-m-semihosting = "0.3.3"
 panic-halt = "0.2.0"
-stm32l0xx-hal = { path = "../../stm32l0xx-hal", features = ["mcu-STM32L052K6Ux", "rt"]}
+stm32l0xx-hal = { features = ["mcu-STM32L052K6Ux", "rt"], version = "0.7.0" }
 lis3dh = {path = "../lis3dh-rs"}
 accelerometer = "~0.12"
 rtt-target = { version = "0.3.0", features = ["cortex-m"] }
