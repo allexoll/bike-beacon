@@ -7,6 +7,14 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "preLaunchTask": "${defaultBuildTask}",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "probe_rs Executable Test",
+            "program_binary": "${workspaceRoot}/target/thumbv6m-none-eabi/debug/bike-lights-sw", //!MODIFY
+            "chip": "STM32L052K6Tx", //!MODIFY
+        },
+        {
             /* Configuration for the STM32F303 Discovery board */
             "type": "cortex-debug",
             "request": "launch",
