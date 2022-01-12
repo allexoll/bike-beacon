@@ -40,8 +40,7 @@ stages:          # List of stages for jobs, and their order of execution
   cache:
     key: "$CI_JOB_NAME-$CI_COMMIT_REF_NAME"
     paths:
-      - cargo/
-      - target/
+      - bike-lights-sw/target/
   before_script:
     - rustup --version
     - rustc --version
@@ -59,4 +58,14 @@ build-stable-release:
     - cd bike-lights-sw
     - cargo build --release 
     - cargo fmt --all --verbose -- --check    
+
+build-stable-dev:
+  <<: *rust_template
+  variables:
+    RUSTUP_TOOLCHAIN: stable
+  script:
+    - cd bike-lights-sw
+    - cargo build 
+    - cargo fmt --all --verbose -- --check    
+
 
