@@ -59,3 +59,13 @@ build-stable-release:
     - cargo build --release 
     - cargo fmt --all --verbose -- --check    
 
+build-stable-dev:
+  <<: *rust_template
+  variables:
+    RUSTUP_TOOLCHAIN: stable
+  script:
+    - cd bike-lights-sw
+    - cargo build 
+    - cargo fmt --all --verbose -- --check    
+
+
