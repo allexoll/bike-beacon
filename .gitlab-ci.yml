@@ -47,15 +47,16 @@ stages:          # List of stages for jobs, and their order of execution
     - rustc --version
     - cargo --version
     - rustup target add thumbv6m-none-eabi
-  script:
-    - cd bike-lights-sw
-    - cargo build --all --verbose
-    - cargo fmt --all --verbose -- --write-mode=diff
 
 
-build-stable:
+
+build-stable-release:
   <<: *rust_template
   variables:
     RUSTUP_TOOLCHAIN: stable
+  script:
+    - cd bike-lights-sw
+    - cargo build --release 
+    - cargo fmt --release -- --write-mode=diff
     
 
