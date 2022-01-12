@@ -43,11 +43,11 @@ stages:          # List of stages for jobs, and their order of execution
       - cargo/
       - target/
   before_script:
-    - export CARGO_HOME="$CI_PROJECT_DIR/bike-lights-sw//cargo"
     - rustup --version
     - rustc --version
     - cargo --version
   script:
+    - cd bike-lights-sw
     - cargo build --all --verbose
     - cargo fmt --all --verbose -- --write-mode=diff
 
