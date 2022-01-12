@@ -1,6 +1,17 @@
 # Bikelight software
 
-to flash:
+to build
 ```shell
-$ cargo flash --release --chip STM32L052K6Tx       
+$ cargo build --release 
+```
+
+to build without sleep
+
+```shell
+$ cargo build --release --features=no-sleep
+```
+
+to build flash and run with defmt-rtt
+```
+$ cargo rrb
 ```
