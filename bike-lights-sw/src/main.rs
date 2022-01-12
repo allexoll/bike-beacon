@@ -50,7 +50,6 @@ enum ButtonState {
 // shared values beetween main context and interrupts
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
-static BTN_STATE: Mutex<Cell<ButtonState>> = Mutex::new(Cell::new(ButtonState::Released));
 static BTN_GPIO: Mutex<RefCell<Option<gpioa::PA3<Input<Floating>>>>> =
     Mutex::new(RefCell::new(None));
 
@@ -344,7 +343,7 @@ fn TIM2() {
         if let Some(ref mut timer) = TIMER.borrow(cs).borrow_mut().deref_mut() {
             // Clear the interrupt flag.
             timer.clear_irq();
-            if (PRESSED.borrow(cs).get()) {
+            if PRESSED.borrow(cs).get() {
                 PRESS_DURATION
                     .borrow(cs)
                     .set(PRESS_DURATION.borrow(cs).get() + 1);

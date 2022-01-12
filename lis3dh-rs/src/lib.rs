@@ -9,6 +9,7 @@
 //!
 
 #![no_std]
+#![allow(dead_code)]
 
 use core::convert::{TryFrom, TryInto};
 use core::fmt::Debug;
