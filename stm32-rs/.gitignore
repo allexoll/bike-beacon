@@ -10,4 +10,4 @@ mmaps/
 /venv
 
 # automatically generated crates
-/stm32*/
+#/stm32*/
