@@ -262,13 +262,13 @@ where
     /// Configure interrupt 1
     pub fn config_interrupt(&mut self) -> Result<(), Error<E>> {
         // INT_1, DET_MOVE(1), 13, 2);
-        
+
         self.write_register(Register::INT1_CFG, 0b0010_1010)?; // YHIE, XHIE
         self.write_register(Register::INT1_THS, 100)?;
         self.write_register(Register::INT1_DURATION, 2)?;
         self.write_register(Register::CTRL3, I1_IA1)?; // I1_IA1
-        self.write_register(Register::CTRL6, 0)?;    // polarity active high
-        
+        self.write_register(Register::CTRL6, 0)?; // polarity active high
+
         // INT_2, DET_STOP(0), 13, 10);
         /*
         // interrupt pin configuration
@@ -287,9 +287,8 @@ where
         self.write_register(Register::INT1_CFG, IntEnable::CFG_ZHIE.bits() | IntEnable::CFG_YHIE.bits() | IntEnable::CFG_XHIE.bits())?;
         */
         Ok(())
-
     }
-    pub fn get_int_source(&mut self) -> Result <u8, Error<E>> {
+    pub fn get_int_source(&mut self) -> Result<u8, Error<E>> {
         self.read_register(Register::INT1_SRC)
     }
     /// Modify a register's value. Read the current value of the register,
