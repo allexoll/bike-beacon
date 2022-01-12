@@ -58,6 +58,6 @@ build-stable-release:
   script:
     - cd bike-lights-sw
     - cargo build --release 
-    - cargo fmt --release -- --write-mode=diff
+    - cargo fmt -- --write-mode=diff
     
 
