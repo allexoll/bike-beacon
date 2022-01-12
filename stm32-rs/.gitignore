@@ -3,7 +3,7 @@
 **/*.rs.bk
 **/Cargo.lock
 .deps/
-*/src/stm32*/
+#*/src/stm32*/
 */src/generic.rs
 html/
 mmaps/
