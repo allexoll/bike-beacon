@@ -34,4 +34,3 @@ pub mod stm32l0x2;
 
 #[cfg(feature = "stm32l0x3")]
 pub mod stm32l0x3;
-

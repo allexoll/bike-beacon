@@ -5,14 +5,13 @@
 use core::cell::{Cell, RefCell};
 use core::ops::DerefMut;
 
-
 use cortex_m::interrupt::Mutex;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 
 use defmt::Format;
-use panic_probe as _;
-use defmt_rtt as _; // global logger
+use defmt_rtt as _;
+use panic_probe as _; // global logger
 
 use lis3dh::{Lis3dh, Mode, SlaveAddr};
 use stm32l0xx_hal::{
@@ -208,7 +207,7 @@ fn main() -> ! {
         });
 
         if button_has_happened != ButtonState::Released {
-            defmt::info!("btn: {}",button_has_happened);
+            defmt::info!("btn: {}", button_has_happened);
             if button_has_happened == ButtonState::ClickedShort {
                 if tube_on_off == TubeOnOff::Off {
                     tube_on_off = TubeOnOff::On;

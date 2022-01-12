@@ -13,7 +13,9 @@ fn main() {
             "src/stm32l0x2/device.x"
         } else if env::var_os("CARGO_FEATURE_STM32L0X3").is_some() {
             "src/stm32l0x3/device.x"
-        } else { panic!("No device features selected"); };
+        } else {
+            panic!("No device features selected");
+        };
         fs::copy(device_file, out.join("device.x")).unwrap();
         println!("cargo:rerun-if-changed={}", device_file);
     }
