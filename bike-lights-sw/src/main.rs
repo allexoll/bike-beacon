@@ -49,7 +49,7 @@ enum ButtonState {
     ClickedLong,
 }
 
-const TIMEOUT:u32 = 90;
+const TIMEOUT: u32 = 90;
 // shared values beetween main context and interrupts
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
