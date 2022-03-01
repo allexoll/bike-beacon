@@ -4,14 +4,16 @@
 // pick a panicking behavior
 use core::cell::{Cell, RefCell};
 use core::ops::DerefMut;
-use core::panic::PanicInfo;
 
 use cortex_m::interrupt::Mutex;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 
+use defmt::Format;
+use defmt_rtt as _;
+use panic_probe as _; // global logger
+
 use lis3dh::{Lis3dh, Mode, SlaveAddr};
-use rtt_target::{rprintln, rtt_init_print};
 use stm32l0xx_hal::{
     exti::{ConfigurableLine, Exti, ExtiLine, GpioLine, TriggerEdge},
     gpio::*,
@@ -26,27 +28,28 @@ use stm32l0xx_hal::{
 };
 
 // light pattern
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Format)]
 enum TubeState {
     SolidOn,
     Blinking5Hz,
     Snake,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Format)]
 enum TubeOnOff {
     On,
     Off,
 }
 
 // button manager
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Format)]
 enum ButtonState {
     Released,
     ClickedShort,
     ClickedLong,
 }
 
+const TIMEOUT: u32 = 90;
 // shared values beetween main context and interrupts
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
@@ -63,11 +66,7 @@ static PRESSED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
 #[entry]
 fn main() -> ! {
-    #[cfg(debug_assertions)]
-    rtt_init_print!();
-    #[cfg(debug_assertions)]
-    rprintln!("bike-lights-sw");
-
+    defmt::info!("bike-lights-sw");
     let cp = pac::CorePeripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
 
@@ -155,6 +154,7 @@ fn main() -> ! {
     lis3dh.set_mode(Mode::LowPower).unwrap();
     // custom function to enable moving irq if acc > 1g any direction
     lis3dh.config_interrupt().unwrap();
+    lis3dh.get_int_source().unwrap();
 
     let mut snake_counter = 0;
     let mut blinker_counter = 0;
@@ -169,7 +169,7 @@ fn main() -> ! {
             }
         ).enter();*/
 
-        #[cfg(not(debug_assertions))]
+        #[cfg(not(feature = "no-sleep"))]
         pwr.sleep_mode(&mut scb).enter();
         //cortex_m::asm::wfi();
         //pwr.exit_low_power_run_mode();
@@ -209,8 +209,7 @@ fn main() -> ! {
         });
 
         if button_has_happened != ButtonState::Released {
-            #[cfg(debug_assertions)]
-            rprintln!("btn: {:?}", button_has_happened);
+            defmt::info!("btn: {}", button_has_happened);
             if button_has_happened == ButtonState::ClickedShort {
                 if tube_on_off == TubeOnOff::Off {
                     tube_on_off = TubeOnOff::On;
@@ -238,20 +237,19 @@ fn main() -> ! {
                     i.set_low().unwrap();
                 }
             }
-            #[cfg(debug_assertions)]
-            rprintln!("pressed: => {:?}:{:?}", tube_on_off, tube_state);
+            defmt::info!("pressed: => {}:{}", tube_on_off, tube_state);
         }
 
         if movement_has_happened {
-            #[cfg(debug_assertions)]
-            rprintln!("moved");
+            defmt::info!("moved");
             lis3dh.get_int_source().unwrap();
             rtc.wakeup_timer().cancel().unwrap();
-            rtc.wakeup_timer().start(240u32);
+            rtc.wakeup_timer().start(TIMEOUT);
+            tube_on_off = TubeOnOff::On;
+            pm_5v_en.set_high().unwrap();
         }
         if timeout_has_happened {
-            #[cfg(debug_assertions)]
-            rprintln!("timeout");
+            defmt::info!("timeout");
             tube_on_off = TubeOnOff::Off;
             pm_5v_en.set_low().unwrap();
             for i in leds.iter_mut() {
@@ -296,14 +294,6 @@ fn main() -> ! {
             }
         }
     }
-}
-
-#[inline(never)]
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    #[cfg(debug_assertions)]
-    rprintln!("{}", info);
-    loop {} // You might need a compiler fence in here.
 }
 
 #[interrupt]

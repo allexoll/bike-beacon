@@ -47,7 +47,7 @@ stages:          # List of stages for jobs, and their order of execution
     - cargo --version
     - rustup target add thumbv6m-none-eabi
     - rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
-
+    - cargo install flip-link
 
 
 build-stable-release:
