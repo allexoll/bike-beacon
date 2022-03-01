@@ -37,10 +37,10 @@ stages:          # List of stages for jobs, and their order of execution
 .rust_template: &rust_template
   stage: build
   image: "rust:slim"
-    cache:
-      key: shared-cache
-      paths:
-        - target/
+  cache:
+    key: shared-cache
+    paths:
+      - target/
   before_script:
     - rustup --version
     - rustc --version
