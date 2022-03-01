@@ -301,18 +301,6 @@ mcu-STM32L083VBTx = ["stm32l0x3", "lqfp100", "io-STM32L071", "eeprom-6144", "fla
 mcu-STM32L083VZIx = ["stm32l0x3", "ufbga100", "io-STM32L071", "eeprom-6144", "flash-192", "ram-20"]
 mcu-STM32L083VZTx = ["stm32l0x3", "lqfp100", "io-STM32L071", "eeprom-6144", "flash-192", "ram-20"]
 
-[profile.dev]
-codegen-units = 1
-incremental = false
-debug = true
-opt-level = "s"
-
-[profile.release]
-codegen-units = 1
-lto = true
-debug = true
-opt-level = "s"
-
 
 [[example]]
 name = "adc_cont"
