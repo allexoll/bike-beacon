@@ -20,10 +20,7 @@ lis3dh = {path = "../lis3dh-rs"}
 no-sleep = []
 default = []
 
-[[bin]]
-name = "bike-lights-sw"
-test = false
-bench = false
+
 
 [dev-dependencies]
 defmt-test = "0.3.0"

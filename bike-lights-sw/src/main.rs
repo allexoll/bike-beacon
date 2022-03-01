@@ -28,7 +28,7 @@ use stm32l0xx_hal::{
 };
 
 // light pattern
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Format)]
 enum TubeState {
     SolidOn,
     Blinking5Hz,
@@ -49,6 +49,7 @@ enum ButtonState {
     ClickedLong,
 }
 
+const TIMEOUT:u32 = 90;
 // shared values beetween main context and interrupts
 static LIS3DH_INT1_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
 
@@ -153,6 +154,7 @@ fn main() -> ! {
     lis3dh.set_mode(Mode::LowPower).unwrap();
     // custom function to enable moving irq if acc > 1g any direction
     lis3dh.config_interrupt().unwrap();
+    lis3dh.get_int_source().unwrap();
 
     let mut snake_counter = 0;
     let mut blinker_counter = 0;
@@ -242,7 +244,9 @@ fn main() -> ! {
             defmt::info!("moved");
             lis3dh.get_int_source().unwrap();
             rtc.wakeup_timer().cancel().unwrap();
-            rtc.wakeup_timer().start(240u32);
+            rtc.wakeup_timer().start(TIMEOUT);
+            tube_on_off = TubeOnOff::On;
+            pm_5v_en.set_high().unwrap();
         }
         if timeout_has_happened {
             defmt::info!("timeout");
