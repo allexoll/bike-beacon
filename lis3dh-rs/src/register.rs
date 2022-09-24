@@ -13,7 +13,7 @@ pub enum SlaveAddr {
 
 impl SlaveAddr {
     pub fn addr(self) -> u8 {
-        return self as u8;
+        self as u8
     }
 }
 

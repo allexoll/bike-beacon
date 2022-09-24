@@ -4,6 +4,7 @@ authors = [
     "Arko <arko2600@gmail.com>",
     "Hanno Braun <hanno@braun-odw.eu>",
     "Danilo Bargen <mail@dbrgn.ch>",
+    "James Waples <james@wapl.es>",
 ]
 categories = ["embedded", "hardware-support", "no-std"]
 description = "Peripheral access API for STM32L0 series microcontrollers"
@@ -14,7 +15,7 @@ license = "0BSD"
 name = "stm32l0xx-hal"
 readme = "README.md"
 repository = "https://github.com/stm32-rs/stm32l0xx-hal"
-version = "0.9.0"
+version = "0.10.0"
 
 [package.metadata.docs.rs]
 features = ["mcu-STM32L071KBTx", "rt", "stm32-usbd", "rtc"]
@@ -22,24 +23,24 @@ targets = ["thumbv6m-none-eabi"]
 
 [dependencies]
 as-slice = "0.2.1"
-cast = { version = "0.2.2", default-features = false }
-cortex-m =  "0.7.0"
+cast = { version = "0.3.0", default-features = false }
+cortex-m = "0.7.0"
 cortex-m-rt = "0.7.0"
 embedded-hal = { version = "0.2.3", features = ["unproven"] }
 embedded-time = "0.12.0"
 nb = "1.0.0"
-rtcc = { version = "0.2", optional = true }
-stm32l0 = {path = "../stm32-rs/stm32l0"}
+rtcc = { version = "0.3.0", optional = true }
+stm32l0 = "0.15.1"
 stm32-usbd = { version = "0.6.0", optional = true }
 void = { version = "1.0.2", default-features = false }
 
 [dev-dependencies]
-aligned = "0.3.1"
-cortex-m-rtic = "0.5.6"
-cortex-m-semihosting = "0.3.2"
+aligned = "0.4.1"
+cortex-m-rtic = "1.1.3"
+cortex-m-semihosting = "0.5.0"
 heapless = "0.7.1"
 panic-halt = "0.2.0"
-panic-semihosting = "0.5.1"
+panic-semihosting = "0.6.0"
 usb-device = "0.2.3"
 usbd-serial = "0.1.0"
 
@@ -300,6 +301,18 @@ mcu-STM32L083VBIx = ["stm32l0x3", "ufbga100", "io-STM32L071", "eeprom-6144", "fl
 mcu-STM32L083VBTx = ["stm32l0x3", "lqfp100", "io-STM32L071", "eeprom-6144", "flash-128", "ram-20"]
 mcu-STM32L083VZIx = ["stm32l0x3", "ufbga100", "io-STM32L071", "eeprom-6144", "flash-192", "ram-20"]
 mcu-STM32L083VZTx = ["stm32l0x3", "lqfp100", "io-STM32L071", "eeprom-6144", "flash-192", "ram-20"]
+
+[profile.dev]
+codegen-units = 1
+incremental = false
+debug = true
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1
+lto = true
+debug = true
+opt-level = "s"
 
 
 [[example]]
