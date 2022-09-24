@@ -165,34 +165,44 @@ fn main() -> ! {
 
     //lis3dh.set_mode(Mode::LowPower).unwrap();
 
-    let threshold = lis3dh::Threshold::g(lis3dh::Range::default(), 1.6);    // this should be the same as 100 lsb
+    let threshold = lis3dh::Threshold::g(lis3dh::Range::default(), 1.6); // this should be the same as 100 lsb
 
     // Configure the threshold value for interrupt 1 to 1.1g
-    lis3dh.configure_irq_threshold(lis3dh::Interrupt1, threshold).unwrap();
+    lis3dh
+        .configure_irq_threshold(lis3dh::Interrupt1, threshold)
+        .unwrap();
 
     // The time in 1/ODR an axis value should be above threshold in order for an
     // interrupt to be raised
-    let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_400, 0.0);        // TODO: find the correct value
-    lis3dh.configure_irq_duration(lis3dh::Interrupt1, duration).unwrap();
+    let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_400, 0.0); // TODO: find the correct value
+    lis3dh
+        .configure_irq_duration(lis3dh::Interrupt1, duration)
+        .unwrap();
 
     // Congfigure IRQ source for interrupt 1
-    lis3dh.configure_irq_src(
-        lis3dh::Interrupt1,
-        lis3dh::InterruptMode::Movement,        // unsure about this? i did not use it previously (OrCombination)
-        lis3dh::InterruptConfig::high(),    // CFG ZHIE XHIE YHIE
-    ).unwrap();
+    lis3dh
+        .configure_irq_src(
+            lis3dh::Interrupt1,
+            lis3dh::InterruptMode::Movement, // unsure about this? i did not use it previously (OrCombination)
+            lis3dh::InterruptConfig::high(), // CFG ZHIE XHIE YHIE
+        )
+        .unwrap();
 
     // Configure IRQ pin 1
-    lis3dh.configure_interrupt_pin(lis3dh::IrqPin1Config {
-        // Raise if interrupt 1 is raised
-        ia1_en: true,
-        // Disable for all other interrupts
-        ..lis3dh::IrqPin1Config::default()
-    }).unwrap();
+    lis3dh
+        .configure_interrupt_pin(lis3dh::IrqPin1Config {
+            // Raise if interrupt 1 is raised
+            ia1_en: true,
+            // Disable for all other interrupts
+            ..lis3dh::IrqPin1Config::default()
+        })
+        .unwrap();
 
     // Go to low power mode and wake up for 25ms if measurement above 1.1g is done
     let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_400, 2.5);
-    lis3dh.configure_switch_to_low_power(threshold, duration).unwrap();
+    lis3dh
+        .configure_switch_to_low_power(threshold, duration)
+        .unwrap();
     lis3dh.set_datarate(lis3dh::DataRate::Hz_400).unwrap();
 
     //lis3dh.config_interrupt().unwrap();
@@ -338,36 +348,36 @@ fn main() -> ! {
                 should_stop_timer = true;
             }
             if periodic_has_happened && tube_on_off == TubeOnOff::On {
-                    match tube_state {
-                        TubeState::SolidOn => {
+                match tube_state {
+                    TubeState::SolidOn => {
+                        for i in leds.iter_mut() {
+                            i.set_high().unwrap();
+                        }
+                    }
+                    TubeState::Blinking5Hz => {
+                        blinker_counter += 1;
+                        if blinker_counter % 10 == 0 {
                             for i in leds.iter_mut() {
                                 i.set_high().unwrap();
                             }
-                        }
-                        TubeState::Blinking5Hz => {
-                            blinker_counter += 1;
-                            if blinker_counter % 10 == 0 {
-                                for i in leds.iter_mut() {
-                                    i.set_high().unwrap();
-                                }
-                            } else {
-                                for i in leds.iter_mut() {
-                                    i.set_low().unwrap();
-                                }
-                            }
-                        }
-                        TubeState::Snake => {
-                            snake_counter += 1;
-                
-                            for (i, led) in leds.iter_mut().enumerate() {
-                                if (snake_counter / 2) % 5 == i {
-                                    led.set_high().unwrap();
-                                } else {
-                                    led.set_low().unwrap();
-                                }
+                        } else {
+                            for i in leds.iter_mut() {
+                                i.set_low().unwrap();
                             }
                         }
                     }
+                    TubeState::Snake => {
+                        snake_counter += 1;
+
+                        for (i, led) in leds.iter_mut().enumerate() {
+                            if (snake_counter / 2) % 5 == i {
+                                led.set_high().unwrap();
+                            } else {
+                                led.set_low().unwrap();
+                            }
+                        }
+                    }
+                }
             }
             cortex_m::interrupt::free(|cs| {
                 if let Some(ref mut timer) = TIMER.borrow(cs).borrow_mut().deref_mut() {
