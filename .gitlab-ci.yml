@@ -56,7 +56,7 @@ build-stable-release:
     RUSTUP_TOOLCHAIN: stable
   script:
     - cargo build --release 
-    - cargo fmt --all --verbose -- --check    
+    - cargo fmt -p firmware --verbose -- --check    
 
 build-stable-dev:
   <<: *rust_template
@@ -64,6 +64,6 @@ build-stable-dev:
     RUSTUP_TOOLCHAIN: stable
   script:
     - cargo build 
-    - cargo fmt --all --verbose -- --check    
+    - cargo fmt -p firmware --verbose -- --check    
 
 
