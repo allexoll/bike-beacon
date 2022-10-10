@@ -2,7 +2,7 @@
 authors = ["Alexis Marquet <alexis@alexismarquet.com>"]
 name = "firmware"
 edition = "2021"
-version = "0.4.0"
+version = "1.0.0"
 
 
 [dependencies]
@@ -10,9 +10,9 @@ cortex-m = "0.7.6"
 cortex-m-rt = "0.7.1"
 defmt = "0.3.2"
 defmt-rtt = "0.3.2"
-panic-probe = { version = "0.3.0", features = ["print-defmt"] }
-stm32l0xx-hal = { path= "../stm32l0xx-hal", features = ["mcu-STM32L052K6Ux", "rt"]}
-#stm32l0xx-hal = {version = "0.10.0", features = ["mcu-STM32L052K6Ux", "rt"]}
+#panic-probe = { version = "0.3.0", features = ["print-defmt"] }
+#stm32l0xx-hal = { features = ["mcu-STM32L052K6Ux", "rt"]}
+stm32l0xx-hal = {version = "0.10.0", features = ["mcu-STM32L052K6Ux", "rt", "disable-linker-script"]}
 accelerometer = "~0.12"
 #lis3dh = {path = "../lis3dh-rs"}
 lis3dh = "0.4.2"
