@@ -78,7 +78,7 @@ impl WheelingPattern {
 // implementing the state machine
 
 #[cfg_attr(feature = "defmt_enable", derive(Format))]
-#[derive( Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 enum State {
     Off,
     Wheeling(WheelingPattern, u32),
@@ -213,7 +213,6 @@ impl ButtonMenu {
         None
     }
 }
-
 
 const TIMEOUT: u32 = 18_000;
 
@@ -354,7 +353,12 @@ fn main() -> ! {
     let mut max17048 = Max17048::new(manager.acquire_i2c());
 
     // create the timer
-    let mut timer = LpTimer::init_periodic(dp.LPTIM, &mut pwr, &mut rcc, stm32l0xx_hal::lptim::ClockSrc::Lsi);
+    let mut timer = LpTimer::init_periodic(
+        dp.LPTIM,
+        &mut pwr,
+        &mut rcc,
+        stm32l0xx_hal::lptim::ClockSrc::Lsi,
+    );
     timer.enable_interrupts(lptim::Interrupts {
         autoreload_match: true,
         ..lptim::Interrupts::default()
@@ -363,13 +367,13 @@ fn main() -> ! {
     cortex_m::interrupt::free(|cs| {
         BTN_GPIO.borrow(cs).replace(Some(button.downgrade()));
         CHARGER_GPIO
-        .borrow(cs)
-        .replace(Some(pm_chg_present.downgrade()));
+            .borrow(cs)
+            .replace(Some(pm_chg_present.downgrade()));
         CHARGING_GPIO
-        .borrow(cs)
-        .replace(Some(pm_chg_charging.downgrade()));
+            .borrow(cs)
+            .replace(Some(pm_chg_charging.downgrade()));
     });
-    
+
     timer.start(200.Hz());
 
     // initialise the states
@@ -496,27 +500,27 @@ fn main() -> ! {
                     pm5v_en.set_high().unwrap();
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
                     leds[running_counter as usize % 5].set_high().unwrap();
-                },
+                }
                 WheelingPattern::Blink10Hz => {
                     // blink all leds at running_counter % 10 == 0
                     pm5v_en.set_high().unwrap();
                     if running_counter % 10 == 0 {
                         leds.iter_mut().for_each(|l| l.set_high().unwrap());
-                    }else{
+                    } else {
                         leds.iter_mut().for_each(|l| l.set_low().unwrap());
                     }
-                },
+                }
                 WheelingPattern::SolidOn => {
                     // turn all leds on
                     pm5v_en.set_high().unwrap();
                     leds.iter_mut().for_each(|l| l.set_high().unwrap());
-                },
+                }
                 WheelingPattern::ShowCharge(_) => {
                     // show state of charge
                     let soc = max17048.soc().unwrap() as u8;
                     pm5v_en.set_high().unwrap();
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
-                    for i in 0..soc/20 {
+                    for i in 0..soc / 20 {
                         leds[i as usize].set_high().unwrap();
                     }
                     // decrement the counter, when it reaches 0, go back to wheeling
@@ -524,11 +528,11 @@ fn main() -> ! {
                         counter -= 1;
                         if counter == 0 {
                             state = State::Wheeling(wheeling_pattern, rest);
-                        }else{
+                        } else {
                             state = State::Wheeling(WheelingPattern::ShowCharge(counter), rest);
                         }
                     }
-                },
+                }
             },
             State::Break(_) => {
                 // turn all leds on
@@ -539,18 +543,18 @@ fn main() -> ! {
                     counter -= 1;
                     if counter == 0 {
                         state = State::Wheeling(wheeling_pattern, TIMEOUT);
-                    }else{
+                    } else {
                         state = State::Break(counter);
                     }
                 }
-            },
+            }
             State::Charging(_) => {
                 // started chargin, so blink 5 times in 400 ticks (u32 enum), then go to Charging(None)
                 if let State::Charging(Some(mut counter)) = state {
                     counter -= 1;
                     if counter == 0 {
                         state = State::Charging(None);
-                    }else{
+                    } else {
                         state = State::Charging(Some(counter));
                     }
                     // blink from 0 to 40, then 80 to 120, then 160 to 200, then 240 to 280, then 320 to 360
@@ -560,7 +564,7 @@ fn main() -> ! {
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
                     // only turn on if in the range set before
                     if counter % 40 < 40 {
-                        for i in 0..soc/20 {
+                        for i in 0..soc / 20 {
                             leds[i as usize].set_high().unwrap();
                         }
                     }
@@ -570,11 +574,18 @@ fn main() -> ! {
                     pm5v_en.set_low().unwrap();
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
                 }
-            },
+            }
         };
 
         #[cfg(not(feature = "no-sleep"))]
-        pwr.stop_mode(&mut scb, &mut rcc, StopModeConfig{ultra_low_power: true}).enter();
+        pwr.stop_mode(
+            &mut scb,
+            &mut rcc,
+            StopModeConfig {
+                ultra_low_power: true,
+            },
+        )
+        .enter();
     }
 }
 
