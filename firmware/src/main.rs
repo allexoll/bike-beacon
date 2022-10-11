@@ -2,7 +2,6 @@
 #![no_main]
 
 use core::cell::{Cell, RefCell};
-use core::ops::DerefMut;
 use core::panic::PanicInfo;
 
 use accelerometer::Accelerometer;
@@ -22,7 +21,7 @@ use stm32l0xx_hal::lptim::{self, LpTimer};
 use stm32l0xx_hal::pwr::StopModeConfig;
 use stm32l0xx_hal::{
     exti::{Exti, ExtiLine, GpioLine, TriggerEdge},
-    gpio::*,
+    gpio::{Floating, GpioExt, Input, Pin, PullUp},
     pac::{self, interrupt, Interrupt},
     prelude::*,
     pwr::PWR,
@@ -177,11 +176,10 @@ impl ButtonMenu {
                         self.state = InternalButtonState::PotentiallyBetweenClicks;
                         self.last_event_counter = 0;
                         return Some(ClickEvent::Short);
-                    } else {
-                        self.state = InternalButtonState::LongClick;
-                        self.last_event_counter = 0;
-                        return Some(ClickEvent::Long);
                     }
+                    self.state = InternalButtonState::LongClick;
+                    self.last_event_counter = 0;
+                    return Some(ClickEvent::Long);
                 }
             }
             InternalButtonState::PotentiallyBetweenClicks => {
@@ -196,11 +194,10 @@ impl ButtonMenu {
                         self.state = InternalButtonState::Idle;
                         self.last_event_counter = 0;
                         return Some(ClickEvent::Double);
-                    } else {
-                        self.state = InternalButtonState::LongClick;
-                        self.last_event_counter = 0;
-                        return Some(ClickEvent::Long);
                     }
+                    self.state = InternalButtonState::LongClick;
+                    self.last_event_counter = 0;
+                    return Some(ClickEvent::Long);
                 }
             }
             InternalButtonState::LongClick => {
@@ -450,7 +447,7 @@ fn main() -> ! {
                                 state = State::Charging(Some(400));
                             }
                             State::Off => state = State::Wheeling(wheeling_pattern, TIMEOUT),
-                            _ => {}
+                            State::Break(_) => {}
                         }
                     }
                     ClickEvent::Double => {
@@ -622,10 +619,11 @@ fn EXTI2_3() {
         if Exti::is_pending(GpioLine::from_raw_line(3).unwrap()) {
             // clear the interrupt
             Exti::unpend(GpioLine::from_raw_line(3).unwrap());
-            if let Some(ref mut btn) = BTN_GPIO.borrow(cs).borrow_mut().deref_mut() {
-                BUTTON_INT.borrow(cs).set(match btn.is_low().unwrap() {
-                    true => Some(ButtonEvent::Pressed),
-                    false => Some(ButtonEvent::Released),
+            if let Some(ref mut btn) = &mut *BTN_GPIO.borrow(cs).borrow_mut() {
+                BUTTON_INT.borrow(cs).set(if btn.is_low().unwrap() {
+                    Some(ButtonEvent::Pressed)
+                } else {
+                    Some(ButtonEvent::Released)
                 });
             }
         }
@@ -638,10 +636,11 @@ fn EXTI4_15() {
         // check if the interrupt is for the Charger
         if Exti::is_pending(GpioLine::from_raw_line(9).unwrap()) {
             // read pin
-            if let Some(ref mut charger) = CHARGER_GPIO.borrow(cs).borrow_mut().deref_mut() {
-                CHARGER_INT.borrow(cs).set(match charger.is_low().unwrap() {
-                    true => Some(ChargerEvent::ChargerConnected),
-                    false => Some(ChargerEvent::ChargerDisconnected),
+            if let Some(ref mut charger) = &mut *CHARGER_GPIO.borrow(cs).borrow_mut() {
+                CHARGER_INT.borrow(cs).set(if charger.is_low().unwrap() {
+                    Some(ChargerEvent::ChargerConnected)
+                } else {
+                    Some(ChargerEvent::ChargerDisconnected)
                 });
             }
             // clear the interrupt
@@ -650,13 +649,12 @@ fn EXTI4_15() {
         // check if the interrupt is for the Charging
         if Exti::is_pending(GpioLine::from_raw_line(10).unwrap()) {
             // read pin
-            if let Some(ref mut charging) = CHARGING_GPIO.borrow(cs).borrow_mut().deref_mut() {
-                CHARGING_INT
-                    .borrow(cs)
-                    .set(match charging.is_low().unwrap() {
-                        true => Some(ChargingEvent::Charging),
-                        false => Some(ChargingEvent::Discharging),
-                    });
+            if let Some(ref mut charging) = &mut *CHARGING_GPIO.borrow(cs).borrow_mut() {
+                CHARGING_INT.borrow(cs).set(if charging.is_low().unwrap() {
+                    Some(ChargingEvent::Charging)
+                } else {
+                    Some(ChargingEvent::Discharging)
+                });
             }
             // clear the interrupt
             Exti::unpend(GpioLine::from_raw_line(10).unwrap());
@@ -667,7 +665,7 @@ fn EXTI4_15() {
 #[interrupt]
 fn LPTIM1() {
     cortex_m::interrupt::free(|cs| {
-        if let Some(ref mut timer) = TIMER.borrow(cs).borrow_mut().deref_mut() {
+        if let Some(ref mut timer) = &mut *TIMER.borrow(cs).borrow_mut() {
             // Clear the interrupt flag.
             timer.clear_irq();
             // tell main thread that a periodic irq has happened
