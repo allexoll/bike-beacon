@@ -49,7 +49,7 @@ use stm32l0xx_hal::{
 // changes to "Charging", and starts a timeout timer of 2 seconds, before returning to "Off".
 
 // when the button is pressed shortly (less than 300ms), and the state is "Off", the display state
-// changes to "Wheeling(pattern++)", and starts a timeout timer of 90 seconds.
+// changes to "Wheeling(pattern-next)", and starts a timeout timer of 90 seconds.
 
 // when the state is "Wheeling" and the button is pressed long (1s), the display state changes to "Off".
 
@@ -155,7 +155,7 @@ impl ButtonMenu {
 
     // tick
     fn tick(&mut self) {
-        self.last_event_counter += 1;
+        self.last_event_counter = self.last_event_counter.wrapping_add(1);
     }
 
     // process a button event.
@@ -482,7 +482,7 @@ fn main() -> ! {
         if timer_int {
             #[cfg(feature = "defmt_enable")]
             defmt::trace!("Timer event {}", running_counter);
-            running_counter += 1;
+            running_counter = running_counter.wrapping_add(1);
             button_menu.tick();
         }
 
