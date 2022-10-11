@@ -382,6 +382,7 @@ fn main() -> ! {
     let mut running_counter: u32 = 0;
     let mut button_menu = ButtonMenu::new();
 
+    let mut has_not_been_setup_since_boot = true;
     // unmask needed interrupt request lines in the NVIC
     unsafe {
         NVIC::unmask(Interrupt::EXTI0_1);
@@ -429,6 +430,7 @@ fn main() -> ! {
         if let Some(button) = button_int {
             #[cfg(feature = "defmt_enable")]
             defmt::info!("Button event: {:?}", button);
+            has_not_been_setup_since_boot = false;
             if let Some(menu_event) = button_menu.process_event(button) {
                 #[cfg(feature = "defmt_enable")]
                 defmt::info!("Menu event: {:?}", menu_event);
@@ -500,6 +502,10 @@ fn main() -> ! {
                     pm5v_en.set_high().unwrap();
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
                     leds[running_counter as usize % 5].set_high().unwrap();
+                    if has_not_been_setup_since_boot {
+                        // turn on led 0
+                        leds[0].set_high().unwrap();
+                    }
                 }
                 WheelingPattern::Blink10Hz => {
                     // blink all leds at running_counter % 10 == 0
