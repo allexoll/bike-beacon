@@ -258,11 +258,11 @@ fn main() -> ! {
     let pm_chg_charging = gpioa.pa10.into_floating_input();
 
     // i2c pins are: scl on pb6, sda on pb7
-    let scl = gpiob.pb6.into_open_drain_output();
-    let sda = gpiob.pb7.into_open_drain_output();
+    let i2c_scl = gpiob.pb6.into_open_drain_output();
+    let i2c_sda = gpiob.pb7.into_open_drain_output();
 
     // configure the i2c
-    let i2c = dp.I2C1.i2c(sda, scl, 100_000.Hz(), &mut rcc);
+    let i2c = dp.I2C1.i2c(i2c_sda, i2c_scl, 100_000.Hz(), &mut rcc);
     // share I2C bus
     let manager = shared_bus::BusManagerSimple::new(i2c);
 
@@ -380,6 +380,9 @@ fn main() -> ! {
     let mut button_menu = ButtonMenu::new();
 
     let mut has_not_been_setup_since_boot = true;
+
+    let mut soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
+
     // unmask needed interrupt request lines in the NVIC
     unsafe {
         NVIC::unmask(Interrupt::EXTI0_1);
@@ -409,15 +412,15 @@ fn main() -> ! {
         // handle the events
         if acc_int {
             // read the accelerometer
-            let acc = lis3dh.accel_norm();
-            if let Ok(acc) = acc {
+            let acceleration = lis3dh.accel_norm();
+            if let Ok(acceleration) = acceleration {
                 // if the downwards acceleration is above 1.6g, there was a shock so we are wheeling
-                if acc.y > 1.6 {
+                if acceleration.y > 1.6 {
                     // if we were not wheeling before, start the wheeling pattern
                     state = State::Wheeling(wheeling_pattern, TIMEOUT);
                 }
                 // if we are breaking
-                if acc.z < -0.6 {
+                if acceleration.z < -0.6 {
                     // if we were not breaking before, start the breaking pattern
                     state = State::Break(200);
                 }
@@ -444,6 +447,7 @@ fn main() -> ! {
                                 state = State::Wheeling(wheeling_pattern, rest);
                             }
                             State::Charging(_) => {
+                                soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
                                 state = State::Charging(Some(400));
                             }
                             State::Off => state = State::Wheeling(wheeling_pattern, TIMEOUT),
@@ -451,6 +455,7 @@ fn main() -> ! {
                         }
                     }
                     ClickEvent::Double => {
+                        soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
                         state = State::Wheeling(WheelingPattern::ShowCharge(400), TIMEOUT);
                     }
                 }
@@ -459,7 +464,7 @@ fn main() -> ! {
 
         if bat_gauge_int {
             // read the battery gauge
-            let soc = max17048.soc().unwrap() as u8;
+            soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
             #[cfg(feature = "defmt_enable")]
             defmt::info!("Battery: {}%", soc);
         }
@@ -468,14 +473,17 @@ fn main() -> ! {
             #[cfg(feature = "defmt_enable")]
             defmt::info!("Charger event: {:?}", event);
             match event {
-                ChargerEvent::ChargerConnected => state = State::Charging(Some(400)),
+                ChargerEvent::ChargerConnected => {
+                    soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
+                    state = State::Charging(Some(400));
+                },
                 ChargerEvent::ChargerDisconnected => state = State::Off,
             }
         }
 
-        if let Some(event) = charging_int {
+        if let Some(_event) = charging_int {
             #[cfg(feature = "defmt_enable")]
-            defmt::info!("Charging event: {:?}", event);
+            defmt::info!("Charging event: {:?}", _event);
         }
 
         if timer_int {
@@ -485,6 +493,47 @@ fn main() -> ! {
             button_menu.tick();
         }
 
+        // state self update
+        state = match state {
+            State::Off => State::Off,
+            State::Wheeling(pattern, time_left) => {
+                if time_left == 0 {
+                    State::Off
+                } else {
+                    match pattern {
+                        WheelingPattern::ShowCharge(show_charging_time_left) => {
+                            if show_charging_time_left == 0 {
+                                State::Wheeling(wheeling_pattern, TIMEOUT)
+                            } else {
+                                State::Wheeling(
+                                    WheelingPattern::ShowCharge(show_charging_time_left - 1),
+                                    TIMEOUT,
+                                )
+                            }
+                        }
+                        x => State::Wheeling(x, time_left - 1),
+                    }
+                }
+            }
+            State::Break(time_left) => {
+                if time_left == 0 {
+                    State::Off
+                } else {
+                    State::Break(time_left - 1)
+                }
+            }
+            State::Charging(x) => {
+                if let Some(time_left) = x {
+                    if time_left == 0 {
+                        State::Charging(None)
+                    } else {
+                        State::Charging(Some(time_left - 1))
+                    }
+                } else {
+                    State::Charging(None)
+                }
+            }
+        };
         // displaying according to the state
 
         match state {
@@ -493,7 +542,7 @@ fn main() -> ! {
                 // turn off all leds
                 leds.iter_mut().for_each(|l| l.set_low().unwrap());
             }
-            State::Wheeling(pattern, rest) => match pattern {
+            State::Wheeling(pattern, _) => match pattern {
                 WheelingPattern::Snake => {
                     // turn all leds off except running_counter % 5
                     pm5v_en.set_high().unwrap();
@@ -520,20 +569,10 @@ fn main() -> ! {
                 }
                 WheelingPattern::ShowCharge(_) => {
                     // show state of charge
-                    let soc = max17048.soc().unwrap() as u8;
                     pm5v_en.set_high().unwrap();
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
                     for i in 0..soc / 20 {
                         leds[i as usize].set_high().unwrap();
-                    }
-                    // decrement the counter, when it reaches 0, go back to wheeling
-                    if let WheelingPattern::ShowCharge(mut counter) = pattern {
-                        counter -= 1;
-                        if counter == 0 {
-                            state = State::Wheeling(wheeling_pattern, rest);
-                        } else {
-                            state = State::Wheeling(WheelingPattern::ShowCharge(counter), rest);
-                        }
                     }
                 }
             },
@@ -541,32 +580,13 @@ fn main() -> ! {
                 // turn all leds on
                 pm5v_en.set_high().unwrap();
                 leds.iter_mut().for_each(|l| l.set_high().unwrap());
-                // decrement the counter, when it reaches 0, go back to wheeling
-                if let State::Break(mut counter) = state {
-                    counter -= 1;
-                    if counter == 0 {
-                        state = State::Wheeling(wheeling_pattern, TIMEOUT);
-                    } else {
-                        state = State::Break(counter);
-                    }
-                }
             }
-            State::Charging(_) => {
-                // started chargin, so blink 5 times in 400 ticks (u32 enum), then go to Charging(None)
-                if let State::Charging(Some(mut counter)) = state {
-                    counter -= 1;
-                    if counter == 0 {
-                        state = State::Charging(None);
-                    } else {
-                        state = State::Charging(Some(counter));
-                    }
-                    // blink from 0 to 40, then 80 to 120, then 160 to 200, then 240 to 280, then 320 to 360
-                    // and show state of charge
+            State::Charging(x) => {
+                if let Some(charging_counter) = x {
                     pm5v_en.set_high().unwrap();
-                    let soc = max17048.soc().unwrap() as u8;
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
                     // only turn on if in the range set before
-                    if counter % 40 < 40 {
+                    if charging_counter % 40 < 40 {
                         for i in 0..soc / 20 {
                             leds[i as usize].set_high().unwrap();
                         }
@@ -589,6 +609,9 @@ fn main() -> ! {
             },
         )
         .enter();
+        #[cfg(feature = "no-sleep")]
+        cortex_m::asm::wfi();
+
     }
 }
 
@@ -680,5 +703,5 @@ fn core_panic(_info: &PanicInfo) -> ! {
     {
         defmt::error!("PANIC: {}", defmt::Debug2Format(_info)); // e.g. using RTT
     }
-    loop {}
+    cortex_m::peripheral::SCB::sys_reset()
 }
