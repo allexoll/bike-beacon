@@ -381,7 +381,7 @@ fn main() -> ! {
 
     let mut has_not_been_setup_since_boot = true;
 
-    let mut soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
+    let mut soc = unsafe { max17048.soc().unwrap().to_int_unchecked::<u8>() };
 
     // unmask needed interrupt request lines in the NVIC
     unsafe {
@@ -447,7 +447,7 @@ fn main() -> ! {
                                 state = State::Wheeling(wheeling_pattern, rest);
                             }
                             State::Charging(_) => {
-                                soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
+                                soc = unsafe { max17048.soc().unwrap().to_int_unchecked::<u8>() };
                                 state = State::Charging(Some(400));
                             }
                             State::Off => state = State::Wheeling(wheeling_pattern, TIMEOUT),
@@ -455,7 +455,7 @@ fn main() -> ! {
                         }
                     }
                     ClickEvent::Double => {
-                        soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
+                        soc = unsafe { max17048.soc().unwrap().to_int_unchecked::<u8>() };
                         state = State::Wheeling(WheelingPattern::ShowCharge(400), TIMEOUT);
                     }
                 }
@@ -464,7 +464,7 @@ fn main() -> ! {
 
         if bat_gauge_int {
             // read the battery gauge
-            soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
+            soc = unsafe { max17048.soc().unwrap().to_int_unchecked::<u8>() };
             #[cfg(feature = "defmt_enable")]
             defmt::info!("Battery: {}%", soc);
         }
@@ -474,9 +474,9 @@ fn main() -> ! {
             defmt::info!("Charger event: {:?}", event);
             match event {
                 ChargerEvent::ChargerConnected => {
-                    soc = unsafe{max17048.soc().unwrap().to_int_unchecked::<u8>()};
+                    soc = unsafe { max17048.soc().unwrap().to_int_unchecked::<u8>() };
                     state = State::Charging(Some(400));
-                },
+                }
                 ChargerEvent::ChargerDisconnected => state = State::Off,
             }
         }
@@ -611,7 +611,6 @@ fn main() -> ! {
         .enter();
         #[cfg(feature = "no-sleep")]
         cortex_m::asm::wfi();
-
     }
 }
 
