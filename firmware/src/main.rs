@@ -94,6 +94,7 @@ enum ButtonEvent {
     Released,
 }
 
+#[allow(dead_code)]
 enum ChargerEvent {
     ChargerConnected,
     ChargerDisconnected,
@@ -153,12 +154,10 @@ impl ButtonMenu {
             self.last_event_counter += 1;
         }
         // return Some on the tick between different intervals
-        if self.last_event_counter == 20 {
-            Some(())
-        } else if self.last_event_counter == 50 {
-            Some(())
-        } else {
-            None
+        match self.last_event_counter {
+            20 => Some(()),
+            50 => Some(()),
+            _ => None,
         }
     }
 
@@ -193,14 +192,13 @@ const TIMEOUT: u32 = 20 * 90;
 fn main() -> ! {
     rtt_init_print!();
     rprintln!("bike-lights-sw");
-    let cp = pac::CorePeripherals::take().unwrap();
+    let mut cp = pac::CorePeripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
 
     let mut rcc = dp.RCC.freeze(Config::hsi16());
     let mut exti = Exti::new(dp.EXTI);
-    // let mut pwr = PWR::new(dp.PWR, &mut rcc);
+    let mut pwr = PWR::new(dp.PWR, &mut rcc);
     let mut syscfg = SYSCFG::new(dp.SYSCFG, &mut rcc);
-    // let mut scb = cp.SCB;
 
     let gpioa = dp.GPIOA.split(&mut rcc);
     let gpiob = dp.GPIOB.split(&mut rcc);
@@ -217,9 +215,6 @@ fn main() -> ! {
 
     // whenever one led is on, PM5V_EN (pb1, push pull), must be on
     let mut pm5v_en = gpiob.pb1.into_push_pull_output();
-
-    // turn all leds
-    pm5v_en.set_high().unwrap();
 
     // accelerator int pin is on pa0, with pull up.
     let accel_int = gpioa.pa1.into_pull_up_input();
@@ -248,10 +243,10 @@ fn main() -> ! {
     // configure Interrupts
     let line_acc_int = GpioLine::from_raw_line(accel_int.pin_number()).unwrap();
     let line_button = GpioLine::from_raw_line(button.pin_number()).unwrap();
-    let line_bat_gauge_int = GpioLine::from_raw_line(battery_gauge_int.pin_number()).unwrap();
+    let _line_bat_gauge_int = GpioLine::from_raw_line(battery_gauge_int.pin_number()).unwrap();
     // also interrupt for pm_chg_present and pm_chg_charging
     let line_pm_chg_present = GpioLine::from_raw_line(pm_chg_present.pin_number()).unwrap();
-    let line_pm_chg_charging = GpioLine::from_raw_line(pm_chg_charging.pin_number()).unwrap();
+    let _line_pm_chg_charging = GpioLine::from_raw_line(pm_chg_charging.pin_number()).unwrap();
 
     exti.listen_gpio(
         &mut syscfg,
@@ -286,12 +281,14 @@ fn main() -> ! {
     // exti.listen_direct(stm32l0xx_hal::exti::DirectLine::Lptim1);
 
     // create the accelerometer
-    let mut accelerometer = match configure_lis3dh(manager.acquire_i2c()){
+    let mut accelerometer = match configure_lis3dh(manager.acquire_i2c()) {
         Ok(lis3dh) => Some(lis3dh),
-        Err(e) => {
+        Err(_e) => {
             // show 0b00001 on leds
             leds[0].set_high().unwrap();
-            loop {}
+            cortex_m::asm::delay(10_000_000);
+            // reset mcu
+            cortex_m::peripheral::SCB::sys_reset();
         }
     };
 
@@ -332,7 +329,11 @@ fn main() -> ! {
         NVIC::unmask(Interrupt::EXTI4_15);
         NVIC::unmask(Interrupt::TIM2);
     }
+
+    let mut previous_state = State::Off;
     loop {
+
+        
         // store locally all IRQ to main events
         let mut acc_int = false;
         let mut button_int = None;
@@ -354,23 +355,7 @@ fn main() -> ! {
         // handle the events
         if acc_int {
             rprintln!("acc_int");
-            // read the accelerometer
-            match accelerometer{
-                Some(ref mut acc) => { match acc.accel_norm(){
-                    Ok(acceleration) => {
-                        // if the acceleration is high enough, change the state
-                        if acceleration.y < -1.1 {
-                            state = State::Wheeling(wheeling_pattern, TIMEOUT);
-                        }
-                    },
-                    Err(e) => {
-                        rprintln!("acceleration error: {:?}", e);
-                    }
-                }
-
-                },
-                None => {}
-            }
+            state = State::Wheeling(wheeling_pattern, TIMEOUT);
         }
 
         if let Some(button) = button_int {
@@ -440,6 +425,7 @@ fn main() -> ! {
         // }
 
         if timer_int {
+            rprintln!("state: {:?}", state);
             #[cfg(feature = "defmt_enable")]
             defmt::trace!("Timer event {}", running_counter);
             running_counter = running_counter.wrapping_add(1);
@@ -447,26 +433,21 @@ fn main() -> ! {
                 // turn off the leds for this tick
             }
             if let State::Wheeling(_, _) = state {
-                match accelerometer{
-                    Some(ref mut acc) => { match acc.accel_norm(){
+                if let Some(ref mut acc) = accelerometer {
+                    match acc.accel_norm() {
                         Ok(acceleration) => {
                             // if the acceleration is high enough, change the state
-                            if acceleration.z > 0.46 && acceleration.z < 0.95 {
+                            if acceleration.z > 0.10 && acceleration.z < 0.95 {
                                 rprintln!("breaking");
                                 state = State::Break(10);
                             }
-                        },
+                        }
                         Err(e) => {
                             rprintln!("acceleration error: {:?}", e);
                         }
                     }
-    
-                    },
-                    None => {}
                 }
             }
-            // rprintln state
-            //rprintln!("state: {:?}", state);
             // state self update
             state = match state {
                 State::Off => State::Off,
@@ -512,14 +493,12 @@ fn main() -> ! {
             // displaying according to the state
             match state {
                 State::Off => {
-                    pm5v_en.set_low().unwrap();
                     // turn off all leds
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
                 }
                 State::Wheeling(pattern, _) => match pattern {
                     WheelingPattern::Snake => {
                         // turn all leds off except running_counter % 5
-                        pm5v_en.set_high().unwrap();
                         leds.iter_mut().for_each(|l| l.set_low().unwrap());
                         leds[(running_counter / 2) as usize % 5].set_high().unwrap();
                         if has_not_been_setup_since_boot {
@@ -529,7 +508,6 @@ fn main() -> ! {
                     }
                     WheelingPattern::Blink10Hz => {
                         // blink all leds at running_counter % 10 == 0
-                        pm5v_en.set_high().unwrap();
                         if running_counter % 10 == 0 {
                             leds.iter_mut().for_each(|l| l.set_high().unwrap());
                         } else {
@@ -538,11 +516,9 @@ fn main() -> ! {
                     }
                     WheelingPattern::SolidOn => {
                         // turn all leds on
-                        pm5v_en.set_high().unwrap();
                         leds.iter_mut().for_each(|l| l.set_high().unwrap());
                     }
                     WheelingPattern::ShowCharge(charging_counter) => {
-                        pm5v_en.set_high().unwrap();
                         leds.iter_mut().for_each(|l| l.set_low().unwrap());
                         let soc_slice = (soc.min(99) as usize) / 20;
                         for i in 0..soc_slice {
@@ -557,12 +533,10 @@ fn main() -> ! {
                 },
                 State::Break(_) => {
                     // turn all leds on
-                    pm5v_en.set_high().unwrap();
                     leds.iter_mut().for_each(|l| l.set_high().unwrap());
                 }
                 State::Charging(x) => {
                     if let Some(charging_counter) = x {
-                        pm5v_en.set_high().unwrap();
                         leds.iter_mut().for_each(|l| l.set_low().unwrap());
                         let soc_slice = (soc.min(99) as usize) / 20;
                         for i in 0..soc_slice {
@@ -576,14 +550,37 @@ fn main() -> ! {
                     }
                     // turn of leds and turn off 5V
                     else {
-                        pm5v_en.set_low().unwrap();
                         leds.iter_mut().for_each(|l| l.set_low().unwrap());
                     }
                 }
             };
         }
+        // if this is the first iteration as State::Off
+        if previous_state != State::Off && state == State::Off {
+            cortex_m::interrupt::free(|cs| {
+                if let Some(ref mut timer) = &mut *TIMER.borrow(cs).borrow_mut() {
+                    pm5v_en.set_low().unwrap();
+                    // turn off the leds
+                    leds.iter_mut().for_each(|l| l.set_low().unwrap());
+                    timer.pause();
+                }
+            });
+        }
+        // if previous state was State::Off and this is not
+        if previous_state == State::Off && state != State::Off {
+            cortex_m::interrupt::free(|cs| {
+                if let Some(ref mut timer) = &mut *TIMER.borrow(cs).borrow_mut() {
+                    pm5v_en.set_high().unwrap();
+                    leds.iter_mut().for_each(|l| l.set_low().unwrap());
+                    timer.resume();
+                }
+            });
+        }
+        previous_state = state;
 
-        // #[cfg(not(feature = "no-sleep"))]
+
+        #[cfg(not(feature = "no-sleep"))]
+        pwr.sleep_mode(&mut cp.SCB).enter();
         // pwr.stop_mode(
         //     &mut scb,
         //     &mut rcc,
@@ -645,7 +642,6 @@ fn EXTI4_15() {
             if let Some(ref mut charger) = &mut *CHARGER_GPIO.borrow(cs).borrow_mut() {
                 CHARGER_INT.borrow(cs).set(if charger.is_low().unwrap() {
                     cortex_m::peripheral::SCB::sys_reset();
-                    Some(ChargerEvent::ChargerConnected)
                 } else {
                     Some(ChargerEvent::ChargerDisconnected)
                 });
@@ -683,8 +679,7 @@ fn TIM2() {
 #[panic_handler] // built-in ("core") attribute
 fn core_panic(_info: &PanicInfo) -> ! {
     //defmt::error!("PANIC: {}", defmt::Debug2Format(_info)); // e.g. using RTT
-    loop {}
-    //cortex_m::peripheral::SCB::sys_reset()
+    cortex_m::peripheral::SCB::sys_reset()
 }
 
 // configure the accelerometer and return a result.
@@ -696,35 +691,32 @@ where
 {
     let mut device = Lis3dh::new_i2c(bus, SlaveAddr::Alternate)?;
     device.set_datarate(lis3dh::DataRate::Hz_400)?;
-    let threshold = lis3dh::Threshold::g(lis3dh::Range::default(), 1.1);
+    let threshold = lis3dh::Threshold::g(lis3dh::Range::default(), 1.6);
+    rprintln!("threshold: {:?}", threshold);
     device.configure_irq_threshold(lis3dh::Interrupt1, threshold)?;
     // The time in 1/ODR an axis value should be above threshold in order for an
     // interrupt to be raised
     let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_400, 0.0); // TODO: find the correct value
-    device
-        .configure_irq_duration(lis3dh::Interrupt1, duration)?;
+    device.configure_irq_duration(lis3dh::Interrupt1, duration)?;
 
     // Congfigure IRQ source for interrupt 1
-    device
-        .configure_irq_src(
-            lis3dh::Interrupt1,
-            lis3dh::InterruptMode::OrCombination, // unsure about this? i did not use it previously (OrCombination)
-            lis3dh::InterruptConfig::high(),      // CFG ZHIE XHIE YHIE
-        )?;
+    device.configure_irq_src(
+        lis3dh::Interrupt1,
+        lis3dh::InterruptMode::OrCombination, // unsure about this? i did not use it previously (OrCombination)
+        lis3dh::InterruptConfig::high(),      // CFG ZHIE XHIE YHIE
+    )?;
 
     // Configure IRQ pin 1
-    device
-        .configure_interrupt_pin(lis3dh::IrqPin1Config {
-            // Raise if interrupt 1 is raised
-            ia1_en: true,
-            // Disable for all other interrupts
-            ..lis3dh::IrqPin1Config::default()
-        })?;
+    device.configure_interrupt_pin(lis3dh::IrqPin1Config {
+        // Raise if interrupt 1 is raised
+        ia1_en: true,
+        // Disable for all other interrupts
+        ..lis3dh::IrqPin1Config::default()
+    })?;
 
     // Go to low power mode and wake up for 25ms if measurement above 1.1g is done
     let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_400, 2.5);
-    device
-        .configure_switch_to_low_power(threshold, duration)?;
+    device.configure_switch_to_low_power(threshold, duration)?;
     device.set_datarate(lis3dh::DataRate::Hz_400)?;
     Ok(device)
 }

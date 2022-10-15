@@ -14,7 +14,7 @@ cortex-m-rt = "0.7.0"
 
 #panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 #stm32l0xx-hal = { features = ["mcu-STM32L052K6Ux", "rt"]}
-stm32l0xx-hal = {version = "0.10.0", features = ["mcu-STM32L052K6Ux", "rt"]}
+stm32l0xx-hal = {path = "../stm32l0xx-hal", version = "0.10.0", features = ["mcu-STM32L052K6Ux", "rt"]}
 accelerometer = "~0.12"
 #lis3dh = {path = "../lis3dh-rs"}
 lis3dh = "0.4.2"
@@ -25,7 +25,7 @@ embedded-hal = "0.2.7"
 
 
 [features]
-
+no-sleep = []
 
 
 [dev-dependencies]
