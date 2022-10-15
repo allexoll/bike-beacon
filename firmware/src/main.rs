@@ -1,20 +1,44 @@
 #![no_std]
 #![no_main]
+#![warn(missing_debug_implementations, rust_2018_idioms, clippy::pedantic)]
 
-mod interrupts;
+//! implementation for the bike light.
+//! there is 5 leds controllable individually
+//! there is an accelerometer
+//! there is a battery gauge
+//! there is a button
+
+//! when the accelerometer moves more than 1.1G towards the ground, the display state
+//! changes to "Wheeling(pattern)", and starts a timeout timer of 90 seconds.
+
+//! when the timeout timer is running and the accelerometer moves more than `break_threshold` G
+//! towards the front, the display state changes to "Break", and starts a timeout timer of 2 seconds.
+
+//! when the charging state switches from "discharging" to "charging", or the button is pressed, the display state
+//! changes to "Charging", and starts a timeout timer of 2 seconds, before returning to "Off".
+
+//! when the button is pressed shortly (less than 300ms), and the state is "Off", the display state
+//! changes to "Wheeling(pattern-next)", and starts a timeout timer of 90 seconds.
+
+//! when the state is "Wheeling" and the button is pressed long (1s), the display state changes to "Off".
+
+//! when the button is pressed twice in less than 1s, the display shows the charging state for 2 seconds.
+
 mod button_menu;
+mod interrupts;
 
-use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
 use core::panic::PanicInfo;
 
 use accelerometer::Accelerometer;
-use cortex_m::interrupt::Mutex;
+
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 
-use crate::interrupts::interrupts::*;
-use crate::button_menu::button_menu::*;
+use crate::button_menu::{ButtonMenu, ClickEvent};
+use crate::interrupts::{
+    ACCEL_INT, BTN_GPIO, BUTTON_INT, CHARGER_GPIO, CHARGER_INT, CHARGING_GPIO, PERIODIC_INT, TIMER,
+};
 use max170xx::Max17048;
 
 use lis3dh::{Lis3dh, Lis3dhI2C, SlaveAddr};
@@ -24,39 +48,16 @@ use lis3dh::{Lis3dh, Lis3dhI2C, SlaveAddr};
 // use stm32l0xx_hal::rcc::MSIRange;
 use stm32l0xx_hal::{
     exti::{Exti, ExtiLine, GpioLine, TriggerEdge},
-    gpio::{GpioExt, Input, Pin, PullUp},
-    pac::{self, interrupt, Interrupt},
+    gpio::GpioExt,
+    pac::{self, Interrupt},
     prelude::*,
     pwr::PWR,
     rcc::Config,
     //rtc::{self, Rtc},
     syscfg::SYSCFG,
-    //lptim::{self, ClockSrc, LpTimer},
-    timer::Timer,
 };
 
 use rtt_target::{self, rprintln, rtt_init_print};
-// implementation for the bike light.
-// there is 5 leds controllable individually
-// there is an accelerometer
-// there is a battery gauge
-// there is a button
-
-// when the accelerometer moves more than 1.1G towards the ground, the display state
-// changes to "Wheeling(pattern)", and starts a timeout timer of 90 seconds.
-
-// when the timeout timer is running and the accelerometer moves more than `break_threshold` G
-// towards the front, the display state changes to "Break", and starts a timeout timer of 2 seconds.
-
-// when the charging state switches from "discharging" to "charging", or the button is pressed, the display state
-// changes to "Charging", and starts a timeout timer of 2 seconds, before returning to "Off".
-
-// when the button is pressed shortly (less than 300ms), and the state is "Off", the display state
-// changes to "Wheeling(pattern-next)", and starts a timeout timer of 90 seconds.
-
-// when the state is "Wheeling" and the button is pressed long (1s), the display state changes to "Off".
-
-// when the button is pressed twice in less than 1s, the display shows the charging state for 2 seconds.
 
 // enum for the wheeling pattern
 #[cfg_attr(feature = "defmt_enable", derive(Format))]
@@ -98,18 +99,16 @@ pub enum ButtonEvent {
 }
 
 #[allow(dead_code)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ChargerEvent {
     ChargerConnected,
     ChargerDisconnected,
 }
-
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum ChargingEvent {
     Charging,
     Discharging,
 }
-
-
-
 
 const TIMEOUT: u32 = 20 * 90;
 
@@ -460,7 +459,7 @@ fn main() -> ! {
                         }
                         // the last one is turned on x/20th of the time according to the content of the slice
                         let last_slice_value = (soc.min(99)) % 20;
-                        if 20 - (charging_counter % 20) < last_slice_value as u32 {
+                        if 20 - (charging_counter % 20) < u32::from(last_slice_value) {
                             leds[4 - soc_slice].set_high().unwrap();
                         }
                     }
@@ -478,7 +477,7 @@ fn main() -> ! {
                         }
                         // the last one is turned on x/20th of the time according to the content of the slice
                         let last_slice_value = (soc.min(99)) % 20;
-                        if 20 - (charging_counter % 20) < last_slice_value as u32 {
+                        if 20 - (charging_counter % 20) < u32::from(last_slice_value) {
                             leds[4 - soc_slice].set_high().unwrap();
                         }
                     }
@@ -526,9 +525,8 @@ fn main() -> ! {
     }
 }
 
-
 #[panic_handler] // built-in ("core") attribute
-fn core_panic(_info: &PanicInfo) -> ! {
+fn core_panic(_info: &PanicInfo<'_>) -> ! {
     //defmt::error!("PANIC: {}", defmt::Debug2Format(_info)); // e.g. using RTT
     cortex_m::peripheral::SCB::sys_reset()
 }
