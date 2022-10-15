@@ -7,13 +7,26 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "preLaunchTask": "${defaultBuildTask}",
-            "type": "probe-rs-debug",
-            "request": "launch",
-            "name": "probe_rs Executable Test",
-            "program_binary": "${workspaceRoot}/target/thumbv6m-none-eabi/debug/bike-lights-sw", //!MODIFY
-            "chip": "STM32L052K6Tx", //!MODIFY
-        },
+          "type": "probe-rs-debug",
+          "request": "launch",
+          "name": "probe_rs Executable launch example",
+          "cwd": "${workspaceFolder}",
+          "runtimeExecutable": "probe-rs-debugger",
+          "runtimeArgs": ["debug"],
+          "chip": "STM32L052K6Ux", //!MODIFY
+          "flashingConfig": {
+            "flashingEnabled": true,
+            "resetAfterFlashing": true,
+            "haltAfterReset": true
+          },
+          "coreConfigs": [
+            {
+              "programBinary": "./../target/thumbv6m-none-eabi/debug/firmware", //!MODIFY
+              "svdFile": "${workspaceRoot}/STM32L0x2.svd" //!MODIFY
+            }
+          ],
+          "consoleLogLevel": "Trace" //Error, Warn, Info, Debug, Trace
+          },
         {
             /* Configuration for the STM32F303 Discovery board */
             "type": "cortex-debug",
@@ -21,9 +34,8 @@
             "name": "debug",
             "servertype": "jlink",
             "cwd": "${workspaceRoot}",
-            "preLaunchTask": "Cargo Build (debug)",
             "runToMain": true,
-            "executable": "./target/thumbv6m-none-eabi/debug/bike-lights-sw",
+            "executable": "./../target/thumbv6m-none-eabi/debug/firmware",
             /* Run `cargo build --example itm` and uncomment this line to run itm example */
             // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
             "device": "STM32L052K6",
