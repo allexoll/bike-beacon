@@ -332,8 +332,6 @@ fn main() -> ! {
 
     let mut previous_state = State::Off;
     loop {
-
-        
         // store locally all IRQ to main events
         let mut acc_int = false;
         let mut button_int = None;
@@ -577,7 +575,6 @@ fn main() -> ! {
             });
         }
         previous_state = state;
-
 
         #[cfg(not(feature = "no-sleep"))]
         pwr.sleep_mode(&mut cp.SCB).enter();
