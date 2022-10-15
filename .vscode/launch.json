@@ -19,19 +19,22 @@
       /* Run `cargo build --example itm` and uncomment this line to run itm example */
       // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
       "device": "STM32L021K6Ux",
-      "searchDir": ["./"],
-      "configFiles": ["openocd.cfg"],
+      "searchDir": [
+        "./"
+      ],
+      "configFiles": [
+        "openocd.cfg"
+      ],
       // "configFiles": [
       //   "interface/cmsis-dap.cfg",
       //   "target/stm32l0.cfg"
       // ],
       "svdFile": "${workspaceRoot}/firmware/STM32L0x2.svd",
-
       "rttConfig": {
         "enabled": true,
         "searchId": "SEGGER RTT",
         "address": "auto",
-        "clearSearch": false,    // OpenOCD users may have to un-comment this
+        "clearSearch": false, // OpenOCD users may have to un-comment this
         "decoders": [
           {
             "port": 0,
@@ -41,33 +44,43 @@
       }
     },
     {
-      /* Configuration for the STM32F303 Discovery board */
-      "type": "cortex-debug",
-      "request": "launch",
-      "name": "debug",
-      "servertype": "jlink",
       "cwd": "${workspaceRoot}",
+      "name": "Flash & Debug",
+      // build latest firmware first!
+      "preLaunchTask": "rust: cargo build",
+      "request": "launch",
+      "type": "cortex-debug",
+      "servertype": "openocd",
+      "gdbTarget": ":3333",
       "runToMain": true,
+      // TODO adjust all these to fit your system, program and hardware
       "executable": "./target/thumbv6m-none-eabi/debug/firmware",
-      /* Run `cargo build --example itm` and uncomment this line to run itm example */
-      // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
-      "device": "STM32L052K6",
-      "svdFile": "${workspaceRoot}/STM32L0x2.svd",
+      // "svdFile": "nrf52840.svd", // optional
+      "gdbPath": "arm-none-eabi-gdb", // or gdb or multiarch-gdb
+      // NOTE requires openOCD 0.11.0+
+      "postLaunchCommands": [
+        "monitor rtt server start 8765 0",
+        // should span the *right* part of RAM
+        "monitor rtt setup 0x2003fbc8 0x30 \"SEGGER RTT\"",
+        "monitor rtt start",
+      ],
+      "configFiles": [
+        // for this dev board we need to override the default transport ..
+        // "interface/jlink.cfg",
+        "openocd.cfg",
+      ],
     },
     {
-      /* Configuration for the STM32F303 Discovery board */
-      "type": "cortex-debug",
-      "request": "launch",
-      "name": "release",
-      "servertype": "jlink",
       "cwd": "${workspaceRoot}",
-      "preLaunchTask": "Cargo Build (release)",
-      "runToMain": true,
-      "executable": "./target/thumbv6m-none-eabi/release/firmware",
-      /* Run `cargo build --example itm` and uncomment this line to run itm example */
-      // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
-      "device": "STM32L052K6",
-      "svdFile": "${workspaceRoot}/STM32L0x2.svd",
+      "name": "Attach Debug",
+      "request": "attach",
+      "type": "cortex-debug",
+      "servertype": "external",
+      "gdbTarget": ":3333",
+      // TODO adjust all these to fit your system, program and hardware
+      "executable": "./target/thumbv6m-none-eabi/debug/firmware",
+      "gdbPath": "arm-none-eabi-gdb", // or gdb or multiarch-gdb
+      // "svdFile": "nrf52840.svd", // optional
     }
   ]
 }

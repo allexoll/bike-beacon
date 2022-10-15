@@ -2,7 +2,6 @@ use core::cell::{Cell, RefCell};
 
 use cortex_m::interrupt::Mutex;
 
-use rtt_target::rprintln;
 use stm32l0xx_hal::{
     exti::{Exti, ExtiLine, GpioLine},
     gpio::{Input, Pin, PullUp},
@@ -52,7 +51,7 @@ fn EXTI0_1() {
 
 #[interrupt]
 fn EXTI2_3() {
-    rprintln!("EXTI2_3");
+    defmt::info!("EXTI2_3");
     cortex_m::interrupt::free(|cs| {
         // check if the interrupt is for the fuel gauge
         if Exti::is_pending(GpioLine::from_raw_line(2).unwrap()) {

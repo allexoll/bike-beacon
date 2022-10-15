@@ -9,12 +9,13 @@
              * but we need to provide a label for it,
              * so we can invoke it from the debug launcher.
              */
-            "label": "Cargo Build (release)",
+            "label": "rust: cargo build",
             "type": "process",
             "command": "cargo",
             "args": [
                 "build",
-                "--release"
+                "--target",
+                "thumbv6m-none-eabi",
             ],
             "problemMatcher": [
                 "$rustc"
@@ -34,7 +35,9 @@
             "type": "process",
             "command": "cargo",
             "args": [
-                "build", "--features", "no-sleep"
+                "build",
+                "--features",
+                "no-sleep"
             ],
             "problemMatcher": [
                 "$rustc"

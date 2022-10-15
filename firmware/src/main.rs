@@ -28,12 +28,12 @@ mod button_menu;
 mod interrupts;
 
 use core::convert::Infallible;
-use core::panic::PanicInfo;
 
 use accelerometer::Accelerometer;
 
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
+use defmt::Format;
 
 use crate::button_menu::{ButtonMenu, ClickEvent};
 use crate::interrupts::{
@@ -41,11 +41,9 @@ use crate::interrupts::{
 };
 use max170xx::Max17048;
 
+use defmt_rtt as _; // global logger
 use lis3dh::{Lis3dh, Lis3dhI2C, SlaveAddr};
-// use stm32l0xx_hal::lptim::{self, LpTimer, Periodic};
-// use stm32l0xx_hal::pac::LPTIM;
-// use stm32l0xx_hal::pwr::StopModeConfig;
-// use stm32l0xx_hal::rcc::MSIRange;
+use panic_probe as _;
 use stm32l0xx_hal::{
     exti::{Exti, ExtiLine, GpioLine, TriggerEdge},
     gpio::GpioExt,
@@ -53,15 +51,11 @@ use stm32l0xx_hal::{
     prelude::*,
     pwr::PWR,
     rcc::Config,
-    //rtc::{self, Rtc},
     syscfg::SYSCFG,
 };
 
-use rtt_target::{self, rprintln, rtt_init_print};
-
 // enum for the wheeling pattern
-#[cfg_attr(feature = "defmt_enable", derive(Format))]
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Format)]
 enum WheelingPattern {
     Snake,
     Blink10Hz,
@@ -81,8 +75,7 @@ impl WheelingPattern {
 
 // implementing the state machine
 
-#[cfg_attr(feature = "defmt_enable", derive(Format))]
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Format)]
 enum State {
     Off,
     Wheeling(WheelingPattern, u32),
@@ -91,20 +84,19 @@ enum State {
 }
 
 // button event
-#[cfg_attr(feature = "defmt_enable", derive(Format))]
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Format)]
 pub enum ButtonEvent {
     Pressed,
     Released,
 }
 
 #[allow(dead_code)]
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Format)]
 pub enum ChargerEvent {
     ChargerConnected,
     ChargerDisconnected,
 }
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Format)]
 pub enum ChargingEvent {
     Charging,
     Discharging,
@@ -114,8 +106,7 @@ const TIMEOUT: u32 = 20 * 90;
 
 #[entry]
 fn main() -> ! {
-    rtt_init_print!();
-    rprintln!("bike-lights-sw");
+    defmt::println!("bike-lights-sw");
     let mut cp = pac::CorePeripherals::take().unwrap();
     let dp = pac::Peripherals::take().unwrap();
 
@@ -244,7 +235,7 @@ fn main() -> ! {
     let mut has_not_been_setup_since_boot = true;
 
     let mut soc = unsafe { max17048.soc().unwrap().to_int_unchecked::<u8>() };
-    rprintln!("soc: {}", soc);
+    defmt::info!("soc: {}", soc);
 
     // unmask needed interrupt request lines in the NVIC
     unsafe {
@@ -276,7 +267,7 @@ fn main() -> ! {
 
         // handle the events
         if acc_int {
-            rprintln!("acc_int");
+            defmt::info!("acc_int");
             state = State::Wheeling(wheeling_pattern, TIMEOUT);
         }
 
@@ -297,7 +288,7 @@ fn main() -> ! {
             }
             has_not_been_setup_since_boot = false;
             if let Some(menu_event) = button_menu.process_event(button) {
-                //rprintln!("menu event: {:?}", menu_event);
+                //defmt::info!("menu event: {:?}", menu_event);
                 #[cfg(feature = "defmt_enable")]
                 defmt::info!("Menu event: {:?}", menu_event);
                 match menu_event {
@@ -344,8 +335,8 @@ fn main() -> ! {
             match event {
                 ChargerEvent::ChargerConnected => {
                     soc = unsafe { max17048.soc().unwrap().to_int_unchecked::<u8>() };
-                    rprintln!("charger connected");
-                    rprintln!("soc: {}", soc);
+                    defmt::info!("charger connected");
+                    defmt::info!("soc: {}", soc);
                     state = State::Charging(Some(40));
                 }
                 ChargerEvent::ChargerDisconnected => state = State::Off,
@@ -358,7 +349,7 @@ fn main() -> ! {
         // }
 
         if timer_int {
-            rprintln!("state: {:?}", state);
+            defmt::info!("state: {:?}", state);
             #[cfg(feature = "defmt_enable")]
             defmt::trace!("Timer event {}", running_counter);
             running_counter = running_counter.wrapping_add(1);
@@ -371,12 +362,12 @@ fn main() -> ! {
                         Ok(acceleration) => {
                             // if the acceleration is high enough, change the state
                             if acceleration.z > 0.20 && acceleration.z < 0.95 {
-                                rprintln!("breaking");
+                                defmt::info!("breaking");
                                 state = State::Break(10);
                             }
                         }
-                        Err(e) => {
-                            rprintln!("acceleration error: {:?}", e);
+                        Err(_e) => {
+                            defmt::info!("acceleration error");
                         }
                     }
                 }
@@ -525,9 +516,8 @@ fn main() -> ! {
     }
 }
 
-#[panic_handler] // built-in ("core") attribute
-fn core_panic(_info: &PanicInfo<'_>) -> ! {
-    //defmt::error!("PANIC: {}", defmt::Debug2Format(_info)); // e.g. using RTT
+#[defmt::panic_handler]
+fn panic() -> ! {
     cortex_m::peripheral::SCB::sys_reset()
 }
 
@@ -541,7 +531,6 @@ where
     let mut device = Lis3dh::new_i2c(bus, SlaveAddr::Alternate)?;
     device.set_datarate(lis3dh::DataRate::Hz_25)?;
     let threshold = lis3dh::Threshold::g(lis3dh::Range::default(), 1.6);
-    rprintln!("threshold: {:?}", threshold);
     device.configure_irq_threshold(lis3dh::Interrupt1, threshold)?;
     // The time in 1/ODR an axis value should be above threshold in order for an
     // interrupt to be raised
