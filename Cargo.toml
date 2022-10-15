@@ -1,8 +1,9 @@
 [workspace]
+#exclude = ["xtask"]
 members = [
     "firmware",
 ]
-
+exclude = ["xtask"]
 
 # cargo build/run
 [profile.dev]

@@ -55,7 +55,7 @@ build-stable-release:
   variables:
     RUSTUP_TOOLCHAIN: stable
   script:
-    - cargo build --release 
+    - cargo build --release --target=thumbv6m-none-eabi
     - cargo fmt -p firmware --verbose -- --check    
 
 build-stable-dev:
@@ -63,7 +63,7 @@ build-stable-dev:
   variables:
     RUSTUP_TOOLCHAIN: stable
   script:
-    - cargo build 
+    - cargo build --target=thumbv6m-none-eabi
     - cargo fmt -p firmware --verbose -- --check    
 
 
