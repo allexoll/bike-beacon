@@ -1,60 +1,73 @@
 {
-    /* 
+  /* 
      * Requires the Rust Language Server (RLS) and Cortex-Debug extensions
      * https://marketplace.visualstudio.com/items?itemName=rust-lang.rust
      * https://marketplace.visualstudio.com/items?itemName=marus25.cortex-debug
      */
-    "version": "0.2.0",
-    "configurations": [
-        {
-          "type": "probe-rs-debug",
-          "request": "launch",
-          "name": "probe_rs Executable launch example",
-          "cwd": "${workspaceFolder}",
-          "runtimeExecutable": "probe-rs-debugger",
-          "runtimeArgs": ["debug"],
-          "chip": "STM32L052K6Ux", //!MODIFY
-          "flashingConfig": {
-            "flashingEnabled": true,
-            "resetAfterFlashing": true,
-            "haltAfterReset": true
-          },
-          "coreConfigs": [
-            {
-              "programBinary": "./target/thumbv6m-none-eabi/debug/firmware", //!MODIFY
-              "svdFile": "${workspaceRoot}/STM32L0x2.svd" //!MODIFY
-            }
-          ],
-          "consoleLogLevel": "Trace" //Error, Warn, Info, Debug, Trace
-          },
-        {
-            /* Configuration for the STM32F303 Discovery board */
-            "type": "cortex-debug",
-            "request": "launch",
-            "name": "debug",
-            "servertype": "jlink",
-            "cwd": "${workspaceRoot}",
-            "runToMain": true,
-            "executable": "./target/thumbv6m-none-eabi/debug/firmware",
-            /* Run `cargo build --example itm` and uncomment this line to run itm example */
-            // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
-            "device": "STM32L052K6",
-            "svdFile": "${workspaceRoot}/STM32L0x2.svd",
-        },
-        {
-            /* Configuration for the STM32F303 Discovery board */
-            "type": "cortex-debug",
-            "request": "launch",
-            "name": "release",
-            "servertype": "jlink",
-            "cwd": "${workspaceRoot}",
-            "preLaunchTask": "Cargo Build (release)",
-            "runToMain": true,
-            "executable": "./target/thumbv6m-none-eabi/release/firmware",
-            /* Run `cargo build --example itm` and uncomment this line to run itm example */
-            // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
-            "device": "STM32L052K6",
-            "svdFile": "${workspaceRoot}/STM32L0x2.svd",
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      /* Configuration for the STM32F303 Discovery board */
+      "type": "cortex-debug",
+      "request": "launch",
+      "name": "Debug (OpenOCD)",
+      "servertype": "openocd",
+      "cwd": "${workspaceRoot}",
+      "preLaunchTask": "Cargo Build (debug)",
+      "runToEntryPoint": "main",
+      "executable": "./target/thumbv6m-none-eabi/debug/firmware",
+      /* Run `cargo build --example itm` and uncomment this line to run itm example */
+      // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
+      "device": "STM32L021K6Ux",
+      "searchDir": ["./"],
+      "configFiles": ["openocd.cfg"],
+      // "configFiles": [
+      //   "interface/cmsis-dap.cfg",
+      //   "target/stm32l0.cfg"
+      // ],
+      "svdFile": "${workspaceRoot}/firmware/STM32L0x2.svd",
+
+      "rttConfig": {
+        "enabled": true,
+        "searchId": "SEGGER RTT",
+        "address": "auto",
+        "clearSearch": false,    // OpenOCD users may have to un-comment this
+        "decoders": [
+          {
+            "port": 0,
+            "type": "console"
+          }
+        ]
+      }
+    },
+    {
+      /* Configuration for the STM32F303 Discovery board */
+      "type": "cortex-debug",
+      "request": "launch",
+      "name": "debug",
+      "servertype": "jlink",
+      "cwd": "${workspaceRoot}",
+      "runToMain": true,
+      "executable": "./target/thumbv6m-none-eabi/debug/firmware",
+      /* Run `cargo build --example itm` and uncomment this line to run itm example */
+      // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
+      "device": "STM32L052K6",
+      "svdFile": "${workspaceRoot}/STM32L0x2.svd",
+    },
+    {
+      /* Configuration for the STM32F303 Discovery board */
+      "type": "cortex-debug",
+      "request": "launch",
+      "name": "release",
+      "servertype": "jlink",
+      "cwd": "${workspaceRoot}",
+      "preLaunchTask": "Cargo Build (release)",
+      "runToMain": true,
+      "executable": "./target/thumbv6m-none-eabi/release/firmware",
+      /* Run `cargo build --example itm` and uncomment this line to run itm example */
+      // "executable": "./target/thumbv7em-none-eabihf/debug/examples/itm",
+      "device": "STM32L052K6",
+      "svdFile": "${workspaceRoot}/STM32L0x2.svd",
+    }
+  ]
 }

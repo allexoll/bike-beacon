@@ -34,7 +34,7 @@
             "type": "process",
             "command": "cargo",
             "args": [
-                "build",
+                "build", "--features", "no-sleep"
             ],
             "problemMatcher": [
                 "$rustc"

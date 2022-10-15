@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
 
+mod interrupts;
+mod button_menu;
+
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
 use core::panic::PanicInfo;
@@ -10,8 +13,8 @@ use cortex_m::interrupt::Mutex;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 
-//use defmt_rtt as _;
-
+use crate::interrupts::interrupts::*;
+use crate::button_menu::button_menu::*;
 use max170xx::Max17048;
 
 use lis3dh::{Lis3dh, Lis3dhI2C, SlaveAddr};
@@ -89,102 +92,24 @@ enum State {
 // button event
 #[cfg_attr(feature = "defmt_enable", derive(Format))]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-enum ButtonEvent {
+pub enum ButtonEvent {
     Pressed,
     Released,
 }
 
 #[allow(dead_code)]
-enum ChargerEvent {
+pub enum ChargerEvent {
     ChargerConnected,
     ChargerDisconnected,
 }
 
-enum ChargingEvent {
+pub enum ChargingEvent {
     Charging,
     Discharging,
 }
 
-// main to irq
 
-// Button GPIO shared pin
-static BTN_GPIO: Mutex<RefCell<Option<Pin<Input<PullUp>>>>> = Mutex::new(RefCell::new(None));
-// charger shared pin
-static CHARGER_GPIO: Mutex<RefCell<Option<Pin<Input<PullUp>>>>> = Mutex::new(RefCell::new(None));
-// charging state shared pin
-static CHARGING_GPIO: Mutex<RefCell<Option<Pin<Input<PullUp>>>>> = Mutex::new(RefCell::new(None));
-// shared timer for the timeout
-static TIMER: Mutex<RefCell<Option<Timer<pac::TIM2>>>> = Mutex::new(RefCell::new(None));
 
-// IRQ to main
-
-// static mutexes to hold the interrupts events notification for the main thread
-static ACCEL_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
-static BUTTON_INT: Mutex<Cell<Option<ButtonEvent>>> = Mutex::new(Cell::new(None));
-static BATTERY_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
-// and for charger present/ charging state
-static CHARGER_INT: Mutex<Cell<Option<ChargerEvent>>> = Mutex::new(Cell::new(None));
-static CHARGING_INT: Mutex<Cell<Option<ChargingEvent>>> = Mutex::new(Cell::new(None));
-static PERIODIC_INT: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-enum ClickEvent {
-    Short,
-    Long,
-    VeryLong,
-}
-
-struct ButtonMenu {
-    state: ButtonEvent,
-    last_event_counter: u32,
-}
-
-impl ButtonMenu {
-    fn new() -> Self {
-        Self {
-            state: ButtonEvent::Released,
-            last_event_counter: 0,
-        }
-    }
-
-    // tick
-    fn tick(&mut self) -> Option<()> {
-        // if the button is pressed, we increment the counter
-        if self.state == ButtonEvent::Pressed {
-            self.last_event_counter += 1;
-        }
-        // return Some on the tick between different intervals
-        match self.last_event_counter {
-            20 => Some(()),
-            50 => Some(()),
-            _ => None,
-        }
-    }
-
-    /// process a button event.
-    /// store the menu state, and return the click event
-    /// short click: between 2 and 20 ticks.
-    /// long click: between 20 and 50 ticks.
-    /// very long click: more than 50 ticks long.
-    /// return the event, or None if no event.
-    fn process_event(&mut self, ev: ButtonEvent) -> Option<ClickEvent> {
-        // if released, return the appropriate event, and reset the counter
-        if ev == ButtonEvent::Released {
-            let ev = match self.last_event_counter {
-                0..=1 => None,
-                2..=20 => Some(ClickEvent::Short),
-                21..=50 => Some(ClickEvent::Long),
-                _ => Some(ClickEvent::VeryLong),
-            };
-            self.last_event_counter = 0;
-            ev
-        } else {
-            self.last_event_counter = 0;
-            self.state = ev;
-            None
-        }
-    }
-}
 
 const TIMEOUT: u32 = 20 * 90;
 
@@ -357,9 +282,20 @@ fn main() -> ! {
         }
 
         if let Some(button) = button_int {
-            rprintln!("button: {:?}", button);
-            #[cfg(feature = "defmt_enable")]
-            defmt::info!("Button event: {:?}", button);
+            if state == State::Off {
+                cortex_m::interrupt::free(|cs| {
+                    if let Some(ref mut timer) = &mut *TIMER.borrow(cs).borrow_mut() {
+                        match button {
+                            ButtonEvent::Pressed => {
+                                timer.resume();
+                            }
+                            ButtonEvent::Released => {
+                                timer.pause();
+                            }
+                        }
+                    }
+                });
+            }
             has_not_been_setup_since_boot = false;
             if let Some(menu_event) = button_menu.process_event(button) {
                 //rprintln!("menu event: {:?}", menu_event);
@@ -435,7 +371,7 @@ fn main() -> ! {
                     match acc.accel_norm() {
                         Ok(acceleration) => {
                             // if the acceleration is high enough, change the state
-                            if acceleration.z > 0.10 && acceleration.z < 0.95 {
+                            if acceleration.z > 0.20 && acceleration.z < 0.95 {
                                 rprintln!("breaking");
                                 state = State::Break(10);
                             }
@@ -590,88 +526,6 @@ fn main() -> ! {
     }
 }
 
-// this is the interrupt handler for the accelerometer
-#[interrupt]
-fn EXTI0_1() {
-    cortex_m::interrupt::free(|cs| {
-        // check if the interrupt is for the accelerometer
-        if Exti::is_pending(GpioLine::from_raw_line(1).unwrap()) {
-            // clear the interrupt
-            Exti::unpend(GpioLine::from_raw_line(1).unwrap());
-            // notify main thread with mutex
-            ACCEL_INT.borrow(cs).set(true);
-        }
-    });
-}
-
-#[interrupt]
-fn EXTI2_3() {
-    rprintln!("EXTI2_3");
-    cortex_m::interrupt::free(|cs| {
-        // check if the interrupt is for the fuel gauge
-        if Exti::is_pending(GpioLine::from_raw_line(2).unwrap()) {
-            // clear the interrupt
-            Exti::unpend(GpioLine::from_raw_line(2).unwrap());
-            // notify main thread with mutex
-            BATTERY_INT.borrow(cs).set(true);
-        }
-        // check if the interrupt is for the button
-        if Exti::is_pending(GpioLine::from_raw_line(3).unwrap()) {
-            // clear the interrupt
-            Exti::unpend(GpioLine::from_raw_line(3).unwrap());
-            if let Some(ref mut btn) = &mut *BTN_GPIO.borrow(cs).borrow_mut() {
-                BUTTON_INT.borrow(cs).set(if btn.is_low().unwrap() {
-                    Some(ButtonEvent::Pressed)
-                } else {
-                    Some(ButtonEvent::Released)
-                });
-            }
-        }
-    });
-}
-
-#[interrupt]
-fn EXTI4_15() {
-    cortex_m::interrupt::free(|cs| {
-        // check if the interrupt is for the Charger
-        if Exti::is_pending(GpioLine::from_raw_line(9).unwrap()) {
-            // read pin
-            if let Some(ref mut charger) = &mut *CHARGER_GPIO.borrow(cs).borrow_mut() {
-                CHARGER_INT.borrow(cs).set(if charger.is_low().unwrap() {
-                    cortex_m::peripheral::SCB::sys_reset();
-                } else {
-                    Some(ChargerEvent::ChargerDisconnected)
-                });
-            }
-            // clear the interrupt
-            Exti::unpend(GpioLine::from_raw_line(9).unwrap());
-        }
-        // check if the interrupt is for the Charging
-        if Exti::is_pending(GpioLine::from_raw_line(10).unwrap()) {
-            // read pin
-            if let Some(ref mut charging) = &mut *CHARGING_GPIO.borrow(cs).borrow_mut() {
-                CHARGING_INT.borrow(cs).set(if charging.is_low().unwrap() {
-                    Some(ChargingEvent::Charging)
-                } else {
-                    Some(ChargingEvent::Discharging)
-                });
-            }
-            // clear the interrupt
-            Exti::unpend(GpioLine::from_raw_line(10).unwrap());
-        }
-    });
-}
-
-#[interrupt]
-fn TIM2() {
-    cortex_m::interrupt::free(|cs| {
-        if let Some(ref mut timer) = &mut *TIMER.borrow(cs).borrow_mut() {
-            // Clear the interrupt flag.
-            timer.clear_irq();
-            PERIODIC_INT.borrow(cs).set(true);
-        }
-    });
-}
 
 #[panic_handler] // built-in ("core") attribute
 fn core_panic(_info: &PanicInfo) -> ! {
@@ -687,20 +541,20 @@ where
         + embedded_hal::blocking::i2c::Write<Error = E>,
 {
     let mut device = Lis3dh::new_i2c(bus, SlaveAddr::Alternate)?;
-    device.set_datarate(lis3dh::DataRate::Hz_400)?;
+    device.set_datarate(lis3dh::DataRate::Hz_25)?;
     let threshold = lis3dh::Threshold::g(lis3dh::Range::default(), 1.6);
     rprintln!("threshold: {:?}", threshold);
     device.configure_irq_threshold(lis3dh::Interrupt1, threshold)?;
     // The time in 1/ODR an axis value should be above threshold in order for an
     // interrupt to be raised
-    let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_400, 0.0); // TODO: find the correct value
+    let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_25, 0.0); // TODO: find the correct value
     device.configure_irq_duration(lis3dh::Interrupt1, duration)?;
 
     // Congfigure IRQ source for interrupt 1
     device.configure_irq_src(
         lis3dh::Interrupt1,
-        lis3dh::InterruptMode::OrCombination, // unsure about this? i did not use it previously (OrCombination)
-        lis3dh::InterruptConfig::high(),      // CFG ZHIE XHIE YHIE
+        lis3dh::InterruptMode::AndCombination, // unsure about this? i did not use it previously (OrCombination)
+        lis3dh::InterruptConfig::from_bits(0b0000_1000), // CFG ZHIE XHIE YHIE
     )?;
 
     // Configure IRQ pin 1
@@ -712,8 +566,9 @@ where
     })?;
 
     // Go to low power mode and wake up for 25ms if measurement above 1.1g is done
-    let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_400, 2.5);
+    let duration = lis3dh::Duration::miliseconds(lis3dh::DataRate::Hz_25, 2.5);
     device.configure_switch_to_low_power(threshold, duration)?;
-    device.set_datarate(lis3dh::DataRate::Hz_400)?;
+    device.set_datarate(lis3dh::DataRate::Hz_25)?;
+
     Ok(device)
 }
