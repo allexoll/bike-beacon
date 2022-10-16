@@ -43,7 +43,7 @@ stages:          # List of stages for jobs, and their order of execution
 
 .tools: &tools
   <<: *cache
-  script:
+  before_script:
     - rustup target add thumbv6m-none-eabi
     - rustup component add rustfmt
     - rustup component add clippy
@@ -52,7 +52,7 @@ stages:          # List of stages for jobs, and their order of execution
 .stable: &stable
   stage: build
   <<: *cache
-  script:
+  before_script:
     - rustup toolchain install stable
     - rustup default stable
   <<: *tools
