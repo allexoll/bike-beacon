@@ -51,26 +51,20 @@ stages:          # List of stages for jobs, and their order of execution
 
 .stable: &stable
   stage: build
+  image: rustdocker/rust:stable
   <<: *cache
-  before_script:
-    - rustup toolchain install stable
-    - rustup default stable
   <<: *tools
 
 .beta: &beta
+  image: rustdocker/rust:beta
   stage: build
   <<: *cache
-  before_script:
-    - rustup toolchain install beta
-    - rustup default beta
   <<: *tools
 
 .nightly: &nightly
+  image: rustdocker/rust:nightly
   stage: build
   <<: *cache
-  before_script:
-    - rustup toolchain install nightly
-    - rustup default nightly
   <<: *tools
 
 checks:cargo:
