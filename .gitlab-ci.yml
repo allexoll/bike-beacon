@@ -60,7 +60,7 @@ stages:          # List of stages for jobs, and their order of execution
 .beta: &beta
   stage: build
   <<: *cache
-  script:
+  before_script:
     - rustup toolchain install beta
     - rustup default beta
   <<: *tools
@@ -68,7 +68,7 @@ stages:          # List of stages for jobs, and their order of execution
 .nightly: &nightly
   stage: build
   <<: *cache
-  script:
+  before_script:
     - rustup toolchain install nightly
     - rustup default nightly
   <<: *tools
