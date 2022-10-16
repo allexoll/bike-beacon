@@ -45,25 +45,46 @@ stages:          # List of stages for jobs, and their order of execution
     - rustup --version
     - rustc --version
     - cargo --version
-    - rustup target add thumbv6m-none-eabi
-    - rustup component add rustfmt --toolchain stable-x86_64-unknown-linux-gnu
+    - rustup target add thumbv6m-none-eabi --toolchain nightly
+    - rustup target add thumbv6m-none-eabi --toolchain beta
+    - rustup target add thumbv6m-none-eabi --toolchain stable
+    - rustup component add rustfmt
+    - rustup component add clippy
     - cargo install flip-link
 
+checks:
+  <<: *rust_template
+  script:
+    - cargo fmt -p firmware --verbose -- --check    
+    - cargo clippy -p firmware --verbose -- --check    
 
 build-stable-release:
   <<: *rust_template
-  variables:
-    RUSTUP_TOOLCHAIN: stable
   script:
     - cargo build --release --target=thumbv6m-none-eabi
-    - cargo fmt -p firmware --verbose -- --check    
 
 build-stable-dev:
   <<: *rust_template
-  variables:
-    RUSTUP_TOOLCHAIN: stable
   script:
     - cargo build --target=thumbv6m-none-eabi
-    - cargo fmt -p firmware --verbose -- --check    
 
+build-beta-release:
+  <<: *rust_template
+  script:
+    - cargo +beta build --release --target=thumbv6m-none-eabi
+
+build-beta-dev:
+  <<: *rust_template
+  script:
+    - cargo +beta build --target=thumbv6m-none-eabi
+
+build-nightly-release:
+  <<: *rust_template
+  script:
+    - cargo +nightly build --release --target=thumbv6m-none-eabi
+
+build-nightly-dev:
+  <<: *rust_template
+  script:
+    - cargo +nightly build --target=thumbv6m-none-eabi
 
