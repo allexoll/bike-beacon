@@ -32,60 +32,70 @@ image: "rust:latest"
 
 
 stages:          # List of stages for jobs, and their order of execution
+  - checks
   - build
 
-.rust_template: &rust_template
-  stage: build
-  image: "rust:slim"
+.cache: &cache
   cache:
-    key: shared-cache
+    key: "shared-cache"
     paths:
-      - target/
-  before_script:
-    - rustup --version
-    - rustc --version
-    - cargo --version
-    - rustup toolchain install stable beta nightly
-    - rustup target add thumbv6m-none-eabi --toolchain stable
-    - rustup target add thumbv6m-none-eabi --toolchain beta
-    - rustup target add thumbv6m-none-eabi --toolchain nightly
+      - target/ 
+
+.tools: &tools
+  <<: *cache
+  script:
+    - rustup target add thumbv6m-none-eabi
     - rustup component add rustfmt
     - rustup component add clippy
     - cargo install flip-link
 
-checks:
-  <<: *rust_template
+.stable: &stable
+  stage: build
+  <<: *cache
   script:
-    - cargo fmt -p firmware --verbose -- --check    
-    - cargo clippy
+    - rustup toolchain install stable
+    - rustup default stable
+  <<: *tools
 
-build-stable-release:
-  <<: *rust_template
+.beta: &beta
+  stage: build
+  <<: *cache
   script:
-    - cargo build --release --target=thumbv6m-none-eabi
+    - rustup toolchain install beta
+    - rustup default beta
+  <<: *tools
 
-build-stable-dev:
-  <<: *rust_template
+.nightly: &nightly
+  stage: build
+  <<: *cache
+  script:
+    - rustup toolchain install nightly
+    - rustup default nightly
+  <<: *tools
+
+checks:cargo:
+  <<: *cache
+  script:
+    - rustc --version && cargo --version
+    - rustup component add clippy rustfmt
+    - cargo cargo fmt -p firmware --verbose -- --check
+    - cargo clippy   
+
+build:stable:
+  <<: *stable
   script:
     - cargo build --target=thumbv6m-none-eabi
+    - cargo build --release --target=thumbv6m-none-eabi
 
-build-beta-release:
-  <<: *rust_template
+build:beta:
+  <<: *beta
   script:
-    - cargo +beta build --release --target=thumbv6m-none-eabi
+    - cargo build --target=thumbv6m-none-eabi
+    - cargo build --release --target=thumbv6m-none-eabi
 
-build-beta-dev:
-  <<: *rust_template
+build:nightly:
+  <<: *nightly
   script:
-    - cargo +beta build --target=thumbv6m-none-eabi
-
-build-nightly-release:
-  <<: *rust_template
-  script:
-    - cargo +nightly build --release --target=thumbv6m-none-eabi
-
-build-nightly-dev:
-  <<: *rust_template
-  script:
-    - cargo +nightly build --target=thumbv6m-none-eabi
-
+    - cargo build --target=thumbv6m-none-eabi
+    - cargo build --release --target=thumbv6m-none-eabi
+    
