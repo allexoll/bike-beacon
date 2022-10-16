@@ -45,9 +45,7 @@ stages:          # List of stages for jobs, and their order of execution
     - rustup --version
     - rustc --version
     - cargo --version
-    - rustup toolchain install stable
-    - rustup toolchain install beta
-    - rustup toolchain install nightly
+    - rustup toolchain install stable beta nightly
     - rustup target add thumbv6m-none-eabi --toolchain stable
     - rustup target add thumbv6m-none-eabi --toolchain beta
     - rustup target add thumbv6m-none-eabi --toolchain nightly
