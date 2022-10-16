@@ -74,6 +74,7 @@ stages:          # List of stages for jobs, and their order of execution
   <<: *tools
 
 checks:cargo:
+  stage: checks
   <<: *cache
   script:
     - rustc --version && cargo --version
