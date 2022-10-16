@@ -45,9 +45,12 @@ stages:          # List of stages for jobs, and their order of execution
     - rustup --version
     - rustc --version
     - cargo --version
-    - rustup target add thumbv6m-none-eabi --toolchain nightly
-    - rustup target add thumbv6m-none-eabi --toolchain beta
+    - rustup toolchain install stable
+    - rustup toolchain install beta
+    - rustup toolchain install nightly
     - rustup target add thumbv6m-none-eabi --toolchain stable
+    - rustup target add thumbv6m-none-eabi --toolchain beta
+    - rustup target add thumbv6m-none-eabi --toolchain nightly
     - rustup component add rustfmt
     - rustup component add clippy
     - cargo install flip-link
