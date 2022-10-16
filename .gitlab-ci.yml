@@ -79,7 +79,7 @@ checks:cargo:
   script:
     - rustc --version && cargo --version
     - rustup component add clippy rustfmt
-    - cargo cargo fmt -p firmware --verbose -- --check
+    - cargo fmt -p firmware --verbose -- --check
     - cargo clippy   
 
 build:stable:
@@ -99,4 +99,3 @@ build:nightly:
   script:
     - cargo build --target=thumbv6m-none-eabi
     - cargo build --release --target=thumbv6m-none-eabi
-    
