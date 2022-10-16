@@ -46,27 +46,21 @@
     {
       "cwd": "${workspaceRoot}",
       "name": "Flash & Debug",
-      // build latest firmware first!
       "preLaunchTask": "rust: cargo build",
       "request": "launch",
       "type": "cortex-debug",
       "servertype": "openocd",
       "gdbTarget": ":3333",
       "runToMain": true,
-      // TODO adjust all these to fit your system, program and hardware
       "executable": "./target/thumbv6m-none-eabi/debug/firmware",
-      // "svdFile": "nrf52840.svd", // optional
+      "svdFile": "firmware/STM32L0x2.svd", 
       "gdbPath": "arm-none-eabi-gdb", // or gdb or multiarch-gdb
-      // NOTE requires openOCD 0.11.0+
       "postLaunchCommands": [
         "monitor rtt server start 8765 0",
-        // should span the *right* part of RAM
         "monitor rtt setup 0x2003fbc8 0x30 \"SEGGER RTT\"",
         "monitor rtt start",
       ],
       "configFiles": [
-        // for this dev board we need to override the default transport ..
-        // "interface/jlink.cfg",
         "openocd.cfg",
       ],
     },
@@ -77,10 +71,9 @@
       "type": "cortex-debug",
       "servertype": "external",
       "gdbTarget": ":3333",
-      // TODO adjust all these to fit your system, program and hardware
       "executable": "./target/thumbv6m-none-eabi/debug/firmware",
-      "gdbPath": "arm-none-eabi-gdb", // or gdb or multiarch-gdb
-      // "svdFile": "nrf52840.svd", // optional
+      "gdbPath": "arm-none-eabi-gdb", 
+      "svdFile": "firmware/STM32L0x2.svd", 
     }
   ]
 }
