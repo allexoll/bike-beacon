@@ -59,7 +59,7 @@ checks:
   <<: *rust_template
   script:
     - cargo fmt -p firmware --verbose -- --check    
-    - cargo clippy -p firmware --verbose -- --check    
+    - cargo clippy
 
 build-stable-release:
   <<: *rust_template
