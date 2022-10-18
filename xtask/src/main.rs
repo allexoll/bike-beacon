@@ -9,7 +9,7 @@ use duct::cmd;
 
 const CARGO_TARGET: &str = "thumbv6m-none-eabi";
 const CRATE_NAME: &str = "firmware";
-const OPENOCD_INTERFACE: &str = "cmsis-dap";
+const OPENOCD_INTERFACE: &str = "jlink";
 const OPENOCD_TARGET: &str = "stm32l0";
 const RTT_TCP_PORT: u16 = 8765;
 const OPENOCD_PROBE_SPEED: u32 = 5000;
