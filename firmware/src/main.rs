@@ -34,6 +34,7 @@ use accelerometer::Accelerometer;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 use defmt::Format;
+use stm32l0xx_hal::pwr::StopModeConfig;
 
 use crate::button_menu::{ButtonMenu, ClickEvent};
 use crate::interrupts::{
@@ -487,11 +488,21 @@ fn main() -> ! {
                     // turn off the leds
                     leds.iter_mut().for_each(|l| l.set_low().unwrap());
                     timer.pause();
+                    if has_not_been_setup_since_boot == false {
+                        pwr.stop_mode(
+                            &mut cp.SCB,
+                            &mut rcc,
+                            StopModeConfig {
+                                ultra_low_power: true,
+                            },
+                        )
+                        .enter();
+                    }
                 }
             });
         }
         // if previous state was State::Off and this is not
-        if previous_state == State::Off && state != State::Off {
+        else if previous_state == State::Off && state != State::Off {
             cortex_m::interrupt::free(|cs| {
                 if let Some(ref mut timer) = &mut *TIMER.borrow(cs).borrow_mut() {
                     pm5v_en.set_high().unwrap();
@@ -499,20 +510,11 @@ fn main() -> ! {
                     timer.resume();
                 }
             });
+        } else {
+            #[cfg(not(feature = "no-sleep"))]
+            pwr.sleep_mode(&mut cp.SCB).enter();
         }
         previous_state = state;
-
-        #[cfg(not(feature = "no-sleep"))]
-        pwr.sleep_mode(&mut cp.SCB).enter();
-        // pwr.stop_mode(
-        //     &mut scb,
-        //     &mut rcc,
-        //     StopModeConfig {
-        //         ultra_low_power: true,
-        //     },
-        // )
-        // .enter();
-        // #[cfg(feature = "no-sleep")]
     }
 }
 
